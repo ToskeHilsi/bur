@@ -39,7 +39,7 @@ base_pattern_duration = 5000
 pattern_duration = base_pattern_duration
 last_pattern_switch = 0
 current_pattern = 0
-cycle_count = 0
+cycle_count = 1
 
 spiral_angle = 0
 expanding_spiral_angle = 0
@@ -206,9 +206,44 @@ def move_bullets():
             if bullet['bullets_remaining'] <= 0:
                 bullets.remove(bullet)
                 continue
+        elif bullet['type'] == 'special_bomb':
+            # Move towards target position
+            dx = bullet['target_x'] - bullet['x']
+            dy = bullet['target_y'] - bullet['y']
+            dist = math.hypot(dx, dy)
+            
+            if dist > 5:  # Still moving towards target
+                bullet['x'] += (dx / dist) * bullet['speed']
+                bullet['y'] += (dy / dist) * bullet['speed']
+            else:
+                # Reached target, explode into 16 bullets
+                if not bullet.get('exploded', False):
+                    bullet['exploded'] = True
+                    explosion_x, explosion_y = bullet['x'], bullet['y']
+                    
+                    # Create 16 bullets in a radial pattern
+                    for i in range(16):
+                        angle = (2 * math.pi / 16) * i
+                        speed = 3
+                        vx = math.cos(angle) * speed
+                        vy = math.sin(angle) * speed
+                        
+                        bullets.append({
+                            'x': explosion_x,
+                            'y': explosion_y,
+                            'vx': vx,
+                            'vy': vy,
+                            'type': 'radial',
+                            'rotation': 0,
+                            'rotation_speed': random.uniform(3, 8)
+                        })
+                    
+                    # Remove the special bomb after explosion
+                    bullets.remove(bullet)
+                    continue
         
-        # Remove bullets that have moved off screen (except for targeted bullets and bullet streams which have their own life_time)
-        if bullet['type'] not in ['targeted', 'giant_explosive', 'bullet_stream']:
+        # Remove bullets that have moved off screen (except for targeted bullets, bullet streams, and special bombs which have their own life_time)
+        if bullet['type'] not in ['targeted', 'giant_explosive', 'bullet_stream', 'special_bomb']:
             if (bullet['x'] < -50 or bullet['x'] > WIDTH + 50 or 
                 bullet['y'] < -50 or bullet['y'] > HEIGHT + 50):
                 if bullet in bullets:  # Safety check
@@ -518,6 +553,7 @@ def draw_health():
     screen.blit(font.render(f"Health: {player_health}/{max_health}", True, WHITE), (10, 10))
     screen.blit(font.render(f"Points: {points}", True, WHITE), (10, 50))
     screen.blit(font.render(f"Speed: {player_speed:.1f}", True, WHITE), (10, 90))
+    screen.blit(font.render(f"Cycle: {cycle_count}", True, WHITE), (10, 130))
 
 def show_shop():
     global player_health, max_health, points, shop_active, cycle_count, max_health_upgrades, speed_upgrades, player_speed
@@ -739,8 +775,8 @@ def main():
                 if event.key == pygame.K_p:  # Debug cheat code
                     points += 1000
 
-        # Check if we should start special attack phase (every 3 cycles)
-        if not special_phase and cycle_count > 0 and cycle_count % 3 == 0 and current_pattern == 0:
+        # Check if we should start special attack phase (every 3 cycles: 3, 6, 9, 12, etc.)
+        if not special_phase and cycle_count > 0 and cycle_count % 3 == 0 and current_pattern == 0 and not waiting_for_shop:
             special_phase = True
             special_phase_start_time = current_time
             # Create containment box (300x200 pixels, enough room to move)
@@ -767,21 +803,31 @@ def main():
                 special_box_move_timer = 0
                 move_speed = 2  # Slower than minimum player speed
                 
-                # Move box center
-                special_box_center_x += special_box_direction[0] * move_speed
-                special_box_center_y += special_box_direction[1] * move_speed
+                # Calculate new box center position
+                new_center_x = special_box_center_x + special_box_direction[0] * move_speed
+                new_center_y = special_box_center_y + special_box_direction[1] * move_speed
                 
-                # Bounce off screen edges
-                if special_box_center_x - special_box_bounds['width']//2 <= 50 or special_box_center_x + special_box_bounds['width']//2 >= WIDTH - 50:
+                # Check boundaries and bounce - ensure box stays fully on screen
+                half_width = special_box_bounds['width'] // 2
+                half_height = special_box_bounds['height'] // 2
+                
+                if new_center_x - half_width <= 0 or new_center_x + half_width >= WIDTH:
                     special_box_direction[0] *= -1
-                if special_box_center_y - special_box_bounds['height']//2 <= 50 or special_box_center_y + special_box_bounds['height']//2 >= HEIGHT - 50:
+                    new_center_x = special_box_center_x  # Don't move this frame to avoid getting stuck
+                else:
+                    special_box_center_x = new_center_x
+                
+                if new_center_y - half_height <= 0 or new_center_y + half_height >= HEIGHT:
                     special_box_direction[1] *= -1
+                    new_center_y = special_box_center_y  # Don't move this frame to avoid getting stuck
+                else:
+                    special_box_center_y = new_center_y
                 
                 # Update box bounds
-                special_box_bounds['left'] = special_box_center_x - special_box_bounds['width'] // 2
-                special_box_bounds['right'] = special_box_center_x + special_box_bounds['width'] // 2
-                special_box_bounds['top'] = special_box_center_y - special_box_bounds['height'] // 2
-                special_box_bounds['bottom'] = special_box_center_y + special_box_bounds['height'] // 2
+                special_box_bounds['left'] = special_box_center_x - half_width
+                special_box_bounds['right'] = special_box_center_x + half_width
+                special_box_bounds['top'] = special_box_center_y - half_height
+                special_box_bounds['bottom'] = special_box_center_y + half_height
             
             # Increase bomb spawn rate over time
             time_factor = min(special_phase_elapsed / 1000.0, 5.0)  # Max at 5 seconds
@@ -806,8 +852,8 @@ def main():
                     'rotation_speed': random.uniform(5, 12)
                 })
             
-            # End special phase after 15 seconds
-            if special_phase_elapsed >= 15000:
+            # End special phase after 30 seconds
+            if special_phase_elapsed >= 30000:
                 special_phase = False
                 special_box_bounds = None
                 cycle_count += 1
