@@ -147,11 +147,11 @@ def move_bullets():
             # Explode when life_time runs out
             if bullet['life_time'] <= 0 and not bullet.get('exploded', False):
                 bullet['exploded'] = True
-                # Create 6 bullet streams at random angles (increased from 4)
+                # Create 10 bullet streams at random angles (increased from 6)
                 explosion_x, explosion_y = bullet['x'], bullet['y']
-                bullets_per_line = 15  # Increased from 10
+                bullets_per_line = 25  # Increased from 15
                 bullet_speed = 5  # Faster bullets
-                line_count = 6  # More lines
+                line_count = 10  # Increased from 6
                 
                 # Generate random angles with some spread to avoid clustering
                 for line_idx in range(line_count):
@@ -169,7 +169,7 @@ def move_bullets():
                         'bullet_speed': bullet_speed,
                         'bullets_remaining': bullets_per_line,
                         'spawn_timer': 0,
-                        'spawn_interval': 3,  # Faster spawning (every 3 frames instead of 4)
+                        'spawn_interval': 2,  # Even faster spawning (every 2 frames instead of 3)
                         'bullets_spawned': 0,
                         'rotation': 0,
                         'rotation_speed': 0
@@ -188,7 +188,7 @@ def move_bullets():
                 bullet['bullets_spawned'] += 1
                 
                 # Spawn a bullet at increasing distance from origin
-                spawn_distance = bullet['bullets_spawned'] * 20  # Tighter spacing (20 instead of 25)
+                spawn_distance = bullet['bullets_spawned'] * 15  # Even tighter spacing (15 instead of 20)
                 spawn_x = bullet['x'] + bullet['direction_x'] * spawn_distance
                 spawn_y = bullet['y'] + bullet['direction_y'] * spawn_distance
                 
@@ -415,7 +415,7 @@ def get_pattern_config(pattern_id):
         4: (100, 5),      # expanding_spiral: 100 bullets
         5: (100, 5),      # double_spiral: 100 spawns (200 bullets total)
         6: (166, 3),      # random_rain: 166 bullets
-        7: (5, 100),      # giant_explosive: 5 giant bullets (450 explosion bullets total)
+        7: (5, 100),      # giant_explosive: 5 giant bullets (1250 explosion bullets total)
         8: (8, 60),       # laser_beams: 8 beams
         9: (5, 100),      # cross_pattern: 5 crosses (80 bullets total)
         10: (10, 50),     # zigzag: 10 volleys (60 bullets total)
@@ -663,6 +663,45 @@ def start_screen():
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_SPACE:
                     return
+
+def handle_special_input(box_bounds):
+    keys = pygame.key.get_pressed()
+    new_x, new_y = player_pos[0], player_pos[1]
+    
+    if keys[pygame.K_w]:
+        new_y -= player_speed
+    if keys[pygame.K_s]:
+        new_y += player_speed
+    if keys[pygame.K_a]:
+        new_x -= player_speed
+    if keys[pygame.K_d]:
+        new_x += player_speed
+    
+    # Constrain to box bounds
+    new_x = max(box_bounds['left'] + player_radius, min(new_x, box_bounds['right'] - player_radius))
+    new_y = max(box_bounds['top'] + player_radius, min(new_y, box_bounds['bottom'] - player_radius))
+    
+    player_pos[0] = new_x
+    player_pos[1] = new_y
+
+def check_box_collision(box_bounds):
+    global player_health, invincible_timer
+    
+    # If player is outside the box, take damage
+    if (player_pos[0] - player_radius < box_bounds['left'] or 
+        player_pos[0] + player_radius > box_bounds['right'] or
+        player_pos[1] - player_radius < box_bounds['top'] or
+        player_pos[1] + player_radius > box_bounds['bottom']):
+        
+        if invincible_timer <= 0:
+            player_health -= 1
+            invincible_timer = INVINCIBLE_DURATION
+
+def draw_special_box(box_bounds):
+    # Draw box outline
+    pygame.draw.rect(screen, (255, 100, 100), 
+                    (box_bounds['left'], box_bounds['top'], 
+                     box_bounds['width'], box_bounds['height']), 3)
 
 def main():
     global last_pattern_switch, current_pattern, invincible_timer, pattern_duration, cycle_count, points
