@@ -11,6 +11,7 @@ pygame.display.set_caption("bur")
 BLACK = (0, 0, 0)
 WHITE = (255, 255, 255)
 RED = (255, 50, 50)
+BLUE = (100, 100, 255)
 
 player_pos = [WIDTH // 2, HEIGHT - 50]
 base_player_speed = 5
@@ -21,6 +22,7 @@ clock = pygame.time.Clock()
 FPS = 60
 
 bullets = []
+stationary_bullets = []  # New list for stationary bullets
 
 player_health = 8
 max_health = 8
@@ -56,6 +58,38 @@ bullet_img = pygame.transform.scale(bullet_img, (16, 16))
 player_img = pygame.image.load("player.png").convert_alpha()
 player_img = pygame.transform.scale(player_img, (40, 40))  # Adjust size if needed
 
+def get_damage_multiplier():
+    """Calculate damage multiplier based on current cycle count"""
+    # Every 5 cycles, damage doubles: 1-5=1x, 6-10=2x, 11-15=4x, etc.
+    tier = (cycle_count - 1) // 5  # 0-indexed tier (0, 1, 2, 3, ...)
+    return 2 ** tier
+
+def create_stationary_grid():
+    """Create a grid of stationary bullets covering the whole screen with equidistant spacing"""
+    stationary_bullets.clear()
+    
+    # Grid parameters - cover whole screen with equidistant spacing
+    cols = 5  # Number of columns across the screen
+    rows = 4  # Number of rows down the screen
+    
+    # Calculate spacing to cover the whole screen evenly
+    grid_spacing_x = WIDTH // (cols + 1)  # +1 to add margins on sides
+    grid_spacing_y = HEIGHT // (rows + 1)  # +1 to add margins on top/bottom
+    
+    # Create a simple grid covering the whole screen
+    for row in range(rows):
+        for col in range(cols):
+            x = grid_spacing_x * (col + 1)  # Start at first spacing interval
+            y = grid_spacing_y * (row + 1)  # Start at first spacing interval
+                
+            stationary_bullets.append({
+                'x': x,
+                'y': y,
+                'rotation': 0,
+                'rotation_speed': random.uniform(1, 3),  # Slow rotation for visual effect
+                'size': 3  # Triple the size
+            })
+
 def draw_player():
     if invincible_timer > 0:
         if (invincible_timer // 5) % 2 == 0:
@@ -70,6 +104,56 @@ def draw_bullet(bullet):
         rect = pygame.Rect(bullet['x'], bullet['y'], bullet['width'], bullet['height'])
         color = (173, 216, 230) if bullet.get('color') == 'blue' else (255, 165, 0)
         pygame.draw.rect(screen, color, rect)
+    elif bullet['type'] == 'slash_attack':
+        # Draw slash attack
+        if bullet['state'] == 'warning':
+            # Draw warning indicator (red outline)
+            color = (255, 100, 100, 100)  # Semi-transparent red
+            # Create rotated rectangle for the slash warning
+            cos_angle = math.cos(math.radians(bullet['angle']))
+            sin_angle = math.sin(math.radians(bullet['angle']))
+            
+            # Calculate corner points of rotated rectangle
+            half_width = bullet['width'] // 2
+            half_height = bullet['height'] // 2
+            
+            corners = [
+                (-half_width, -half_height),
+                (half_width, -half_height),
+                (half_width, half_height),
+                (-half_width, half_height)
+            ]
+            
+            rotated_corners = []
+            for corner_x, corner_y in corners:
+                rot_x = corner_x * cos_angle - corner_y * sin_angle + bullet['x']
+                rot_y = corner_x * sin_angle + corner_y * cos_angle + bullet['y']
+                rotated_corners.append((rot_x, rot_y))
+            
+            pygame.draw.polygon(screen, (255, 100, 100), rotated_corners, 2)  # Red outline
+        elif bullet['state'] == 'active':
+            # Draw active slash (solid red)
+            cos_angle = math.cos(math.radians(bullet['angle']))
+            sin_angle = math.sin(math.radians(bullet['angle']))
+            
+            # Calculate corner points of rotated rectangle
+            half_width = bullet['width'] // 2
+            half_height = bullet['height'] // 2
+            
+            corners = [
+                (-half_width, -half_height),
+                (half_width, -half_height),
+                (half_width, half_height),
+                (-half_width, half_height)
+            ]
+            
+            rotated_corners = []
+            for corner_x, corner_y in corners:
+                rot_x = corner_x * cos_angle - corner_y * sin_angle + bullet['x']
+                rot_y = corner_x * sin_angle + corner_y * cos_angle + bullet['y']
+                rotated_corners.append((rot_x, rot_y))
+            
+            pygame.draw.polygon(screen, (255, 50, 50), rotated_corners)  # Solid red
     elif bullet['type'] == 'bullet_stream':
         # Don't draw bullet stream spawners - they're invisible
         pass
@@ -86,10 +170,28 @@ def draw_bullet(bullet):
         rotated_rect.center = (int(bullet['x']), int(bullet['y']))
         screen.blit(rotated_img, rotated_rect)
 
+def draw_stationary_bullet(bullet):
+    """Draw a stationary bullet with different color and size"""
+    # Scale bullet sprite based on size
+    size_multiplier = bullet.get('size', 1)
+    scaled_size = (int(bullet_img.get_width() * size_multiplier), 
+                  int(bullet_img.get_height() * size_multiplier))
+    scaled_img = pygame.transform.scale(bullet_img, scaled_size)
+    
+    # Rotate the bullet sprite
+    rotated_img = pygame.transform.rotate(scaled_img, bullet['rotation'])
+    rotated_rect = rotated_img.get_rect()
+    rotated_rect.center = (int(bullet['x']), int(bullet['y']))
+    
+    # Tint the bullet blue
+    blue_surface = rotated_img.copy()
+    blue_surface.fill(BLUE, special_flags=pygame.BLEND_MULT)
+    screen.blit(blue_surface, rotated_rect)
+
 def move_bullets():
     for bullet in bullets[:]:
-        # Update rotation for all non-laser bullets
-        if bullet['type'] != 'laser':
+        # Update rotation for all non-laser bullets that have rotation
+        if bullet['type'] not in ['laser', 'slash_attack'] and 'rotation_speed' in bullet:
             bullet['rotation'] += bullet['rotation_speed']
             
         if bullet['type'] == 'spiral':
@@ -206,48 +308,29 @@ def move_bullets():
             if bullet['bullets_remaining'] <= 0:
                 bullets.remove(bullet)
                 continue
-        elif bullet['type'] == 'special_bomb':
-            # Move towards target position
-            dx = bullet['target_x'] - bullet['x']
-            dy = bullet['target_y'] - bullet['y']
-            dist = math.hypot(dx, dy)
-            
-            if dist > 5:  # Still moving towards target
-                bullet['x'] += (dx / dist) * bullet['speed']
-                bullet['y'] += (dy / dist) * bullet['speed']
-            else:
-                # Reached target, explode into 16 bullets
-                if not bullet.get('exploded', False):
-                    bullet['exploded'] = True
-                    explosion_x, explosion_y = bullet['x'], bullet['y']
-                    
-                    # Create 16 bullets in a radial pattern
-                    for i in range(16):
-                        angle = (2 * math.pi / 16) * i
-                        speed = 3
-                        vx = math.cos(angle) * speed
-                        vy = math.sin(angle) * speed
-                        
-                        bullets.append({
-                            'x': explosion_x,
-                            'y': explosion_y,
-                            'vx': vx,
-                            'vy': vy,
-                            'type': 'radial',
-                            'rotation': 0,
-                            'rotation_speed': random.uniform(3, 8)
-                        })
-                    
-                    # Remove the special bomb after explosion
+        elif bullet['type'] == 'slash_attack':
+            # Handle slash attack timing
+            if bullet['state'] == 'warning':
+                bullet['warning_time'] -= 1
+                if bullet['warning_time'] <= 0:
+                    bullet['state'] = 'active'
+            elif bullet['state'] == 'active':
+                bullet['active_time'] -= 1
+                if bullet['active_time'] <= 0:
                     bullets.remove(bullet)
                     continue
         
-        # Remove bullets that have moved off screen (except for targeted bullets, bullet streams, and special bombs which have their own life_time)
-        if bullet['type'] not in ['targeted', 'giant_explosive', 'bullet_stream', 'special_bomb']:
+        # Remove bullets that have moved off screen (except for targeted bullets, bullet streams, and slash attacks which have their own life_time)
+        if bullet['type'] not in ['targeted', 'giant_explosive', 'bullet_stream', 'slash_attack']:
             if (bullet['x'] < -50 or bullet['x'] > WIDTH + 50 or 
                 bullet['y'] < -50 or bullet['y'] > HEIGHT + 50):
                 if bullet in bullets:  # Safety check
                     bullets.remove(bullet)
+
+def update_stationary_bullets():
+    """Update rotation of stationary bullets"""
+    for bullet in stationary_bullets:
+        bullet['rotation'] += bullet['rotation_speed']
 
 def spawn_spiral():
     global spiral_angle
@@ -516,16 +599,42 @@ def check_collisions():
     global player_health, invincible_timer
     keys = pygame.key.get_pressed()
     moving = keys[pygame.K_w] or keys[pygame.K_a] or keys[pygame.K_s] or keys[pygame.K_d]
+    
+    # Get current damage multiplier
+    damage_multiplier = get_damage_multiplier()
+    
+    # Check regular bullet collisions
     for bullet in bullets[:]:
         if bullet['type'] == 'laser':
             rect = pygame.Rect(bullet['x'], bullet['y'], bullet['width'], bullet['height'])
             if abs(player_pos[0] - rect.centerx) < rect.width // 2 + player_radius and abs(player_pos[1] - rect.centery) < rect.height // 2 + player_radius:
                 if invincible_timer <= 0:
                     if bullet.get('color') == 'blue' and moving:
-                        player_health -= 1
+                        player_health -= damage_multiplier
                         invincible_timer = INVINCIBLE_DURATION
                     elif bullet.get('color') == 'orange' and not moving:
-                        player_health -= 1
+                        player_health -= damage_multiplier
+                        invincible_timer = INVINCIBLE_DURATION
+        elif bullet['type'] == 'slash_attack':
+            # Only check collision when slash is active
+            if bullet['state'] == 'active':
+                # Check if player is within the rotated rectangle of the slash
+                cos_angle = math.cos(math.radians(bullet['angle']))
+                sin_angle = math.sin(math.radians(bullet['angle']))
+                
+                # Translate player position relative to slash center
+                rel_x = player_pos[0] - bullet['x']
+                rel_y = player_pos[1] - bullet['y']
+                
+                # Rotate player position to align with slash rectangle
+                rotated_x = rel_x * cos_angle + rel_y * sin_angle
+                rotated_y = -rel_x * sin_angle + rel_y * cos_angle
+                
+                # Check if within rectangle bounds
+                if (abs(rotated_x) < bullet['width'] // 2 + player_radius and 
+                    abs(rotated_y) < bullet['height'] // 2 + player_radius):
+                    if invincible_timer <= 0:
+                        player_health -= damage_multiplier
                         invincible_timer = INVINCIBLE_DURATION
         else:
             collision_radius = bullet_img.get_width() // 2
@@ -534,9 +643,20 @@ def check_collisions():
             
             if math.hypot(bullet['x'] - player_pos[0], bullet['y'] - player_pos[1]) < player_radius + collision_radius:
                 if invincible_timer <= 0:
-                    player_health -= 1
+                    player_health -= damage_multiplier
                     invincible_timer = INVINCIBLE_DURATION
                     bullets.remove(bullet)
+    
+    # Check stationary bullet collisions (don't remove them when hit)
+    for bullet in stationary_bullets:
+        collision_radius = bullet_img.get_width() // 2
+        if bullet.get('size'):
+            collision_radius *= bullet['size']
+        
+        if math.hypot(bullet['x'] - player_pos[0], bullet['y'] - player_pos[1]) < player_radius + collision_radius:
+            if invincible_timer <= 0:
+                player_health -= damage_multiplier
+                invincible_timer = INVINCIBLE_DURATION
 
 def handle_input():
     keys = pygame.key.get_pressed()
@@ -550,10 +670,12 @@ def handle_input():
         player_pos[0] += player_speed
 
 def draw_health():
+    damage_multiplier = get_damage_multiplier()
     screen.blit(font.render(f"Health: {player_health}/{max_health}", True, WHITE), (10, 10))
     screen.blit(font.render(f"Points: {points}", True, WHITE), (10, 50))
     screen.blit(font.render(f"Speed: {player_speed:.1f}", True, WHITE), (10, 90))
     screen.blit(font.render(f"Cycle: {cycle_count}", True, WHITE), (10, 130))
+    screen.blit(font.render(f"Damage: {damage_multiplier}x", True, (255, 100, 100)), (10, 170))
 
 def show_shop():
     global player_health, max_health, points, shop_active, cycle_count, max_health_upgrades, speed_upgrades, player_speed
@@ -564,9 +686,12 @@ def show_shop():
     max_health_cost = 200 + (max_health_upgrades * 150)  # 200, 350, 500, 650, etc.
     speed_cost = 150 + (speed_upgrades * 100)  # 150, 250, 350, 450, etc.
     
-    # Calculate full heal cost based on missing health
+    # Calculate full heal cost based on missing health (better rate than single heals for 3+ HP, worse for 1-2 HP)
     missing_health = max_health - player_health
-    full_heal_cost = missing_health * 35  # 35 points per health point to be restored
+    if missing_health <= 2:
+        full_heal_cost = missing_health * 60  # More expensive per HP for small amounts (60 vs 50)
+    else:
+        full_heal_cost = missing_health * 40  # Better rate for bulk healing (40 vs 50)
     
     shop_options = [
         {"name": "Heal 1 HP", "cost": 50, "description": "Restore 1 health point"},
@@ -616,7 +741,10 @@ def show_shop():
                         
                         # Recalculate full heal cost after any purchase that might change health
                         missing_health = max_health - player_health
-                        full_heal_cost = missing_health * 35
+                        if missing_health <= 2:
+                            full_heal_cost = missing_health * 60  # More expensive per HP for small amounts
+                        else:
+                            full_heal_cost = missing_health * 40  # Better rate for bulk healing
                         shop_options[3]["cost"] = full_heal_cost
                         shop_options[3]["description"] = f"Restore {missing_health} health ({player_health}/{max_health} → {max_health}/{max_health})"
         
@@ -636,14 +764,17 @@ def show_shop():
         health_text = font.render(f"Current Health: {player_health}/{max_health}", True, WHITE)
         points_text = font.render(f"Available Points: {points}", True, WHITE)
         speed_text = font.render(f"Current Speed: {player_speed:.1f}", True, WHITE)
+        damage_multiplier = get_damage_multiplier()
+        damage_text = font.render(f"Current Damage: {damage_multiplier}x", True, (255, 100, 100))
         upgrades_text = small_font.render(f"Upgrades: Health +{max_health_upgrades}, Speed +{speed_upgrades}", True, (150, 150, 150))
         screen.blit(health_text, (WIDTH // 2 - health_text.get_width() // 2, stats_y))
         screen.blit(points_text, (WIDTH // 2 - points_text.get_width() // 2, stats_y + 30))
         screen.blit(speed_text, (WIDTH // 2 - speed_text.get_width() // 2, stats_y + 60))
-        screen.blit(upgrades_text, (WIDTH // 2 - upgrades_text.get_width() // 2, stats_y + 85))
+        screen.blit(damage_text, (WIDTH // 2 - damage_text.get_width() // 2, stats_y + 90))
+        screen.blit(upgrades_text, (WIDTH // 2 - upgrades_text.get_width() // 2, stats_y + 115))
         
         # Shop options
-        option_y = 320
+        option_y = 350
         for i, option in enumerate(shop_options):
             color = WHITE
             if i == selected_option:
@@ -723,6 +854,9 @@ def handle_special_input(box_bounds):
 def check_box_collision(box_bounds):
     global player_health, invincible_timer
     
+    # Get current damage multiplier
+    damage_multiplier = get_damage_multiplier()
+    
     # If player is outside the box, take damage
     if (player_pos[0] - player_radius < box_bounds['left'] or 
         player_pos[0] + player_radius > box_bounds['right'] or
@@ -730,7 +864,7 @@ def check_box_collision(box_bounds):
         player_pos[1] + player_radius > box_bounds['bottom']):
         
         if invincible_timer <= 0:
-            player_health -= 1
+            player_health -= damage_multiplier
             invincible_timer = INVINCIBLE_DURATION
 
 def draw_special_box(box_bounds):
@@ -758,7 +892,7 @@ def main():
     special_phase_start_time = 0
     special_box_bounds = None
     special_bomb_spawn_timer = 0
-    special_bomb_spawn_rate = 60  # Start spawning every 60 frames (1 second)
+    special_bomb_spawn_rate = 120  # Reduced from 60 to 120 (half as many bombs)
     special_box_center_x = WIDTH // 2
     special_box_center_y = HEIGHT // 2
     special_box_move_timer = 0
@@ -772,8 +906,25 @@ def main():
             if event.type == pygame.QUIT:
                 running = False
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_p:  # Debug cheat code
-                    points += 1000
+                if event.key == pygame.K_p:  # Skip current cycle
+                    if special_phase:
+                        # End special phase immediately
+                        special_phase = False
+                        special_box_bounds = None
+                        stationary_bullets.clear()
+                        cycle_count += 1
+                        points += cycle_count * 50
+                        waiting_for_shop = True
+                        shop_wait_start = current_time
+                    else:
+                        # Skip to end of current cycle
+                        cycle_count += 1
+                        points += cycle_count * 50
+                        waiting_for_shop = True
+                        shop_wait_start = current_time
+                        current_pattern = 0
+                        pattern_bullets_spawned = 0
+                        pattern_spawn_timer = 0
 
         # Check if we should start special attack phase (every 3 cycles: 3, 6, 9, 12, etc.)
         if not special_phase and cycle_count > 0 and cycle_count % 3 == 0 and current_pattern == 0 and not waiting_for_shop:
@@ -790,8 +941,9 @@ def main():
                 'height': box_height
             }
             special_bomb_spawn_timer = 0
-            special_bomb_spawn_rate = 60
+            special_bomb_spawn_rate = 120  # Reduced bomb spawn rate
             bullets.clear()  # Clear existing bullets for special phase
+            create_stationary_grid()  # Create stationary grid for special phase
 
         # Handle special attack phase
         if special_phase:
@@ -829,33 +981,34 @@ def main():
                 special_box_bounds['top'] = special_box_center_y - half_height
                 special_box_bounds['bottom'] = special_box_center_y + half_height
             
-            # Increase bomb spawn rate over time
+            # Increase bomb spawn rate over time (but still slower than before)
             time_factor = min(special_phase_elapsed / 1000.0, 5.0)  # Max at 5 seconds
-            special_bomb_spawn_rate = max(15, int(60 - (time_factor * 9)))  # From 60 to 15 frames
+            special_bomb_spawn_rate = max(30, int(120 - (time_factor * 18)))  # From 120 to 30 frames (half the original rate)
             
-            # Spawn targeted bombs
+            # Spawn targeted slashes
             special_bomb_spawn_timer += 1
             if special_bomb_spawn_timer >= special_bomb_spawn_rate:
                 special_bomb_spawn_timer = 0
-                # Spawn bomb targeting current player position
-                spawn_x = random.randint(0, WIDTH)
+                # Create a slash that targets current player position
                 target_x, target_y = player_pos[0], player_pos[1]
                 
                 bullets.append({
-                    'x': spawn_x,
-                    'y': -30,
-                    'target_x': target_x,
-                    'target_y': target_y,
-                    'speed': 4,
-                    'type': 'special_bomb',
-                    'rotation': 0,
-                    'rotation_speed': random.uniform(5, 12)
+                    'x': target_x,
+                    'y': target_y,
+                    'type': 'slash_attack',
+                    'warning_time': 30,  # Half second warning at 60 FPS
+                    'active_time': 10,   # How long the slash stays active
+                    'width': max(WIDTH, HEIGHT),  # Long enough to cover the whole screen
+                    'height': 8,         # Height of the slash
+                    'angle': random.uniform(0, 360),  # Random angle for variety
+                    'state': 'warning'   # 'warning' then 'active'
                 })
             
             # End special phase after 30 seconds
             if special_phase_elapsed >= 30000:
                 special_phase = False
                 special_box_bounds = None
+                stationary_bullets.clear()  # Clear stationary grid when special phase ends
                 cycle_count += 1
                 points += cycle_count * 50
                 waiting_for_shop = True
@@ -920,6 +1073,7 @@ def main():
             handle_special_input(special_box_bounds)
 
         move_bullets()
+        update_stationary_bullets()  # Update stationary bullet rotations
         check_collisions()
         
         # Check box collision in special phase
@@ -930,6 +1084,11 @@ def main():
             invincible_timer -= 1
 
         screen.fill(BLACK)
+        
+        # Draw stationary bullets first (behind everything else)
+        if special_phase:  # Only show stationary bullets during special attack phase
+            for bullet in stationary_bullets:
+                draw_stationary_bullet(bullet)
         
         # Draw special box if in special phase
         if special_phase and special_box_bounds:
