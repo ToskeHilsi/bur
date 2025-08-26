@@ -1,6 +1,8 @@
 bur is a fun, stupid, and random (mostly stupid) game i made with a little help from my friends and a LOT of help from ai (chatgpt and claude)
 curious about the attacks? no? too bad! i need somewhere to put these:
+
 The full pattern sequence is:
+
 0. Spiral
 1. Wave
 2. Targeted
