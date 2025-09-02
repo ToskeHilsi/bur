@@ -17,3 +17,4 @@ The full pattern sequence is:
 10. Zigzag bullets
 11. Grid rain
 12. Slash attacks
+13. Phase
