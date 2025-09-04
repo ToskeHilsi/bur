@@ -4,7 +4,7 @@ import math
 
 pygame.init()
 
-WIDTH, HEIGHT = 1920, 1080 #normally 1200, 800
+WIDTH, HEIGHT = 1920, 1080 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
 pygame.display.set_caption("bur")
 
@@ -15,6 +15,7 @@ BLUE = (100, 100, 255)
 GREEN = (50, 255, 50)
 PURPLE = (150, 50, 200)
 LIGHT_PURPLE = (50, 20, 70)
+YELLOW = (255, 255, 0)
 
 player_pos = [WIDTH // 2, HEIGHT - 50]
 base_player_speed = 5
@@ -25,9 +26,21 @@ player_radius = 15
 phased = False
 phase_background_alpha = 30
 p_key_pressed = False  # Track P key state to prevent toggle spam
+forced_phase = False  # Track if player is forced into phase
 
-# Character selection
+# Energy system
+max_energy = 300  # 5 seconds at 60 FPS
+current_energy = 0
+energy_drain_rate = .5 # Energy lost per frame when phased
+energy_gain_rate = 1   # Energy gained per frame when not phased
+
+# Character selection and stats
 selected_character = 0  # 0, 1, or 2
+character_stats = {
+    0: {"name": "bur", "max_health": 8, "money_multiplier": 1.0},
+    1: {"name": "also bur", "max_health": 6, "money_multiplier": 1.5},
+    2: {"name": "definitely not bur", "max_health": 10, "money_multiplier": 0.7}
+}
 
 clock = pygame.time.Clock()
 FPS = 60
@@ -90,6 +103,68 @@ except:
     ]
     for i in range(len(player_imgs)):
         player_imgs[i] = pygame.transform.scale(player_imgs[i], (40, 40))
+
+def initialize_character_stats():
+    """Initialize player stats based on selected character"""
+    global max_health, player_health
+    stats = character_stats[selected_character]
+    max_health = stats["max_health"]
+    player_health = max_health
+
+def get_money_multiplier():
+    """Get the money multiplier for the selected character"""
+    return character_stats[selected_character]["money_multiplier"]
+
+def update_energy():
+    """Update energy meter based on phase state"""
+    global current_energy, phased, forced_phase
+    
+    if not phased:
+        current_energy += energy_drain_rate
+    else:
+        current_energy = max(0, current_energy - energy_gain_rate)
+    
+    # Cap energy at maximum
+    if current_energy >= max_energy:
+        current_energy = max_energy
+        if not forced_phase:
+            forced_phase = True
+            phased = True
+
+def draw_energy_meter():
+    """Draw the energy meter on screen"""
+    meter_width = 200
+    meter_height = 20
+    meter_x = WIDTH - meter_width - 20
+    meter_y = 20
+    
+    # Background
+    pygame.draw.rect(screen, (50, 50, 50), (meter_x, meter_y, meter_width, meter_height))
+    pygame.draw.rect(screen, WHITE, (meter_x, meter_y, meter_width, meter_height), 2)
+    
+    # Energy fill
+    energy_ratio = current_energy / max_energy
+    fill_width = int(meter_width * energy_ratio)
+    
+    # Color changes based on energy level
+    if energy_ratio < 0.3:
+        color = GREEN
+    elif energy_ratio < 0.7:
+        color = YELLOW
+    else:
+        color = RED
+    
+    if fill_width > 0:
+        pygame.draw.rect(screen, color, (meter_x, meter_y, fill_width, meter_height))
+    
+    # Label
+    energy_text = small_font.render("ENERGY", True, WHITE)
+    screen.blit(energy_text, (meter_x, meter_y - 25))
+    
+    # Warning text when forced into phase
+    if forced_phase:
+        warning_text = small_font.render("FORCED PHASE - CYCLE END TO RESET", True, RED)
+        screen.blit(warning_text, (meter_x - 50, meter_y + 25))
 
 def get_damage_multiplier():
     """Calculate damage multiplier based on current cycle count"""
@@ -185,11 +260,11 @@ def draw_bullet(bullet):
         elif bullet.get('color') == 'orange':
             color = (255, 165, 0)
         elif bullet.get('color') == 'purple':
-            # Purple laser only visible when not phased
-            if not phased:
-                color = PURPLE
+            # Purple laser is barely visible when phased but still drawn
+            if phased:
+                color = (75, 25, 100)  # Very dark purple, barely visible
             else:
-                return  # Don't draw purple laser when phased
+                color = PURPLE
         else:
             color = (255, 165, 0)  # Default to orange
             
@@ -857,8 +932,8 @@ def handle_pattern_spawning():
         pattern_bullets_spawned = 0
         pattern_spawn_timer = 0
         
-        # Award points for completing a pattern
-        points += 10
+        # Award points for completing a pattern (with character multiplier)
+        points += int(10 * get_money_multiplier())
         
         return current_pattern_index >= len(current_cycle_patterns)  # Return true if all patterns done
     
@@ -1010,12 +1085,12 @@ def check_collisions():
                     bullets.remove(bullet)
 
 def handle_input():
-    global phased, p_key_pressed
+    global phased, p_key_pressed, forced_phase
     
     keys = pygame.key.get_pressed()
     
-    # Handle phase toggle - only toggle when P is pressed (not held)
-    if keys[pygame.K_p] and not p_key_pressed:
+    # Handle phase toggle - only toggle when P is pressed (not held) and not forced
+    if keys[pygame.K_p] and not p_key_pressed and not forced_phase:
         phased = not phased  # Toggle phase state
         p_key_pressed = True
     elif not keys[pygame.K_p]:
@@ -1033,26 +1108,41 @@ def handle_input():
 
 def draw_health():
     damage_multiplier = get_damage_multiplier()
+    character_name = character_stats[selected_character]["name"]
+    
     screen.blit(font.render(f"Health: {player_health}/{max_health}", True, WHITE), (10, 10))
     screen.blit(font.render(f"Points: {points}", True, WHITE), (10, 50))
     screen.blit(font.render(f"Speed: {player_speed:.1f}", True, WHITE), (10, 90))
     screen.blit(font.render(f"Cycle: {cycle_count}", True, WHITE), (10, 130))
     screen.blit(font.render(f"Damage: {damage_multiplier}x", True, (255, 100, 100)), (10, 170))
+    screen.blit(small_font.render(f"Character: {character_name} ({get_money_multiplier():.1f}x money)", True, WHITE), (10, 210))
     
     # Show phase status
     if phased:
-        phase_text = font.render("PHASED", True, PURPLE)
-        screen.blit(phase_text, (10, 210))
-        phase_info = small_font.render(f"All bullets deal {5 * damage_multiplier} damage", True, PURPLE)
-        screen.blit(phase_info, (10, 240))
+        if forced_phase:
+            phase_text = font.render("FORCED PHASE", True, RED)
+            screen.blit(phase_text, (10, 240))
+            phase_info = small_font.render(f"All bullets deal {5 * damage_multiplier} damage", True, RED)
+            screen.blit(phase_info, (10, 270))
+        else:
+            phase_text = font.render("PHASED", True, PURPLE)
+            screen.blit(phase_text, (10, 240))
+            phase_info = small_font.render(f"All bullets deal {5 * damage_multiplier} damage", True, PURPLE)
+            screen.blit(phase_info, (10, 270))
     else:
-        controls_text = small_font.render("Press P to phase", True, WHITE)
-        screen.blit(controls_text, (10, 210))
+        if not forced_phase:
+            controls_text = small_font.render("Press P to phase", True, WHITE)
+            screen.blit(controls_text, (10, 240))
 
 def show_shop():
-    global player_health, max_health, points, shop_active, cycle_count, max_health_upgrades, speed_upgrades, player_speed
+    global player_health, max_health, points, shop_active, cycle_count, max_health_upgrades, speed_upgrades, player_speed, current_energy, forced_phase, phased
     shop_active = True
     selected_option = 0
+    
+    # Reset energy and forced phase at cycle end
+    current_energy = 0
+    forced_phase = False
+    phased = False
     
     # Calculate escalating costs
     max_health_cost = 200 + (max_health_upgrades * 150)  # 200, 350, 500, 650, etc.
@@ -1127,26 +1217,30 @@ def show_shop():
         title = shop_font.render("SHOP - Cycle Complete!", True, WHITE)
         screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 100))
         
-        # Points earned message
-        points_msg = font.render(f"Points Earned This Cycle: +{cycle_count * 50}", True, (0, 255, 0))
+        # Points earned message (with character multiplier)
+        cycle_bonus = int(cycle_count * 50 * get_money_multiplier())
+        points_msg = font.render(f"Points Earned This Cycle: +{cycle_bonus}", True, (0, 255, 0))
         screen.blit(points_msg, (WIDTH // 2 - points_msg.get_width() // 2, 150))
         
         # Current stats
         stats_y = 200
+        character_name = character_stats[selected_character]["name"]
+        char_text = font.render(f"Character: {character_name} ({get_money_multiplier():.1f}x money)", True, WHITE)
         health_text = font.render(f"Current Health: {player_health}/{max_health}", True, WHITE)
         points_text = font.render(f"Available Points: {points}", True, WHITE)
         speed_text = font.render(f"Current Speed: {player_speed:.1f}", True, WHITE)
         damage_multiplier = get_damage_multiplier()
         damage_text = font.render(f"Current Damage: {damage_multiplier}x", True, (255, 100, 100))
         upgrades_text = small_font.render(f"Upgrades: Health +{max_health_upgrades}, Speed +{speed_upgrades}", True, (150, 150, 150))
-        screen.blit(health_text, (WIDTH // 2 - health_text.get_width() // 2, stats_y))
-        screen.blit(points_text, (WIDTH // 2 - points_text.get_width() // 2, stats_y + 30))
-        screen.blit(speed_text, (WIDTH // 2 - speed_text.get_width() // 2, stats_y + 60))
-        screen.blit(damage_text, (WIDTH // 2 - damage_text.get_width() // 2, stats_y + 90))
-        screen.blit(upgrades_text, (WIDTH // 2 - upgrades_text.get_width() // 2, stats_y + 115))
+        screen.blit(char_text, (WIDTH // 2 - char_text.get_width() // 2, stats_y))
+        screen.blit(health_text, (WIDTH // 2 - health_text.get_width() // 2, stats_y + 30))
+        screen.blit(points_text, (WIDTH // 2 - points_text.get_width() // 2, stats_y + 60))
+        screen.blit(speed_text, (WIDTH // 2 - speed_text.get_width() // 2, stats_y + 90))
+        screen.blit(damage_text, (WIDTH // 2 - damage_text.get_width() // 2, stats_y + 120))
+        screen.blit(upgrades_text, (WIDTH // 2 - upgrades_text.get_width() // 2, stats_y + 145))
         
         # Shop options
-        option_y = 350
+        option_y = 380
         for i, option in enumerate(shop_options):
             color = WHITE
             if i == selected_option:
@@ -1187,6 +1281,11 @@ def character_selection():
     instruction_font = pygame.font.SysFont(None, 36)
     
     character_names = ["bur", "also bur", "definitely not bur"]
+    character_descriptions = [
+        "normal",
+        "less hp more money",
+        "more hp less money"
+    ]
     
     while True:
         screen.fill(BLACK)
@@ -1212,13 +1311,19 @@ def character_selection():
             name_rect.center = (char_x, char_y + 60)
             screen.blit(name_text, name_rect)
             
+            # Draw character description
+            desc_text = small_font.render(character_descriptions[i], True, WHITE)
+            desc_rect = desc_text.get_rect()
+            desc_rect.center = (char_x, char_y + 80)
+            screen.blit(desc_text, desc_rect)
+            
             # Highlight selected character
             if i == selected_character:
                 pygame.draw.rect(screen, WHITE, 
-                               (char_x - 50, char_y - 50, 100, 120), 3)
+                               (char_x - 60, char_y - 60, 120, 150), 3)
                 select_text = small_font.render("SELECTED", True, WHITE)
                 select_rect = select_text.get_rect()
-                select_rect.center = (char_x, char_y + 80)
+                select_rect.center = (char_x, char_y + 100)
                 screen.blit(select_text, select_rect)
         
         # Instructions
@@ -1267,6 +1372,7 @@ def main():
     
     start_screen()
     character_selection()
+    initialize_character_stats()
     
     running = True
     last_pattern_switch = pygame.time.get_ticks()
@@ -1286,6 +1392,7 @@ def main():
 
         # Regular game logic
         handle_input()
+        update_energy()  # Update energy meter
 
         # Handle pattern spawning
         all_patterns_spawned = handle_pattern_spawning()
@@ -1293,8 +1400,8 @@ def main():
         # Check if cycle is complete (all patterns done AND no bullets left)
         if is_cycle_complete():
             cycle_count += 1
-            # Award bonus points for completing a cycle
-            points += cycle_count * 50
+            # Award bonus points for completing a cycle (with character multiplier)
+            points += int(cycle_count * 50 * get_money_multiplier())
             
             # End i-frames and reset player position
             invincible_timer = 0
@@ -1332,6 +1439,7 @@ def main():
             draw_bullet(bullet)
         draw_particles()
         draw_health()
+        draw_energy_meter()  # Draw energy meter
 
         if player_health <= 0:
             game_over_text = font.render("Game Over", True, RED)
@@ -1346,3 +1454,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+            
