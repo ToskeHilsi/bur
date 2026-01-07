@@ -1,5 +1,7 @@
 bur is a fun, stupid, and random (mostly stupid) game i made with a little help from my friends and a LOT of help from ai (chatgpt and claude)
 
+now with an actual enemy!
+
 curious about the attacks? no? too bad! i need somewhere to put these:
 
 The full pattern sequence is:
@@ -17,4 +19,3 @@ The full pattern sequence is:
 10. Zigzag bullets
 11. Grid rain
 12. Slash attacks
-13. Phase
