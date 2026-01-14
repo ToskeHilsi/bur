@@ -1,8 +1,11 @@
 import pygame
 import random
 import math
+import json
+import os
 
 pygame.init()
+pygame.mixer.init()  # Initialize music system
 
 WIDTH, HEIGHT = 1920, 1080 
 screen = pygame.display.set_mode((WIDTH, HEIGHT))
@@ -25,12 +28,84 @@ box_size = 450  # Multiplied by 1.5 from 300
 box_x = WIDTH // 2 - box_size // 2
 box_y = HEIGHT // 2 - box_size // 2
 
-# Character selection and stats
-selected_character = 0  # 0, 1, or 2
+# Enemy definitions
+ENEMIES = {
+    1: {
+        "name": "Comedy and Tragedy",
+        "background": "stage",
+        "music": "tv_world",  # Extension will be auto-detected
+        "difficulty": 0.4,  # Easier than current
+        "max_health": 80,
+        "attacks": [0, 2, 4, 8, 12]  # Spiral, Targeted, Expanding Spiral, Lasers, Slashes
+    },
+    2: {
+        "name": "Diego",
+        "background": "desert",
+        "music": "friend_inside_me",
+        "difficulty": 0.6,
+        "max_health": 85,
+        "attacks": [2, 6, 9, 10, 12]  # Targeted, Random Rain, Cross, Zigzag, Slashes
+    },
+    3: {
+        "name": "Cap'n Cakes",
+        "background": "cyber_city",
+        "music": "fandago",
+        "difficulty": 0.8,
+        "max_health": 90,
+        "attacks": [1, 3, 5, 7, 11]  # Bouncing, Radial Burst, Double Spiral, Giant Explosive, Grid Rain
+    },
+    4: {
+        "name": "Spamton NEO",
+        "background": "queens_basement",
+        "music": "big_shot",
+        "difficulty": 1.0,  # Current difficulty
+        "max_health": 100,
+        "attacks": [0, 3, 4, 5, 7, 9]  # Spiral, Radial Burst, Expanding Spiral, Double Spiral, Giant Explosive, Cross
+    },
+    5: {
+        "name": "The Roaring Knight",
+        "background": "fountain",
+        "music": "the_roaring_knight",
+        "difficulty": 1.3,
+        "max_health": 120,
+        "attacks": [3, 7, 8, 12, 13]  # Radial Burst, Giant Explosive, Lasers, Slashes, Grid Slashes
+    },
+    6: {
+        "name": "Sans",
+        "background": "hall_of_judgment",
+        "music": "musclememory",
+        "difficulty": 1.6,
+        "max_health": 1,  # Sans gimmick - 1 HP but very hard
+        "attacks": [0, 4, 6, 10, 12]  # Spiral, Expanding Spiral, Random Rain, Zigzag, Slashes
+    },
+    7: {
+        "name": "Susie",
+        "background": "forest_light",
+        "music": "megalovania_susie",
+        "difficulty": 2.0,
+        "max_health": 150,
+        "attacks": [1, 5, 7, 9, 11, 12]  # Bouncing, Double Spiral, Giant Explosive, Cross, Grid Rain, Slashes
+    },
+    8: {
+        "name": "???",
+        "background": "forest_dark",
+        "music": "fun_value",
+        "difficulty": 2.5,
+        "max_health": 200,
+        "attacks": [0, 1, 3, 4, 5, 6, 7, 10, 11, 12, 13]  # Almost all attacks including Grid Slashes
+    }
+}
+
+# Game state
+current_enemy_id = 4  # Start with Spamton NEO
+defeated_enemies = set()  # Track which enemies have been beaten
+save_file = "bur_save.json"
+hard_mode_active = False  # Track if we're in hard mode
+
+# Character selection and stats - SIMPLIFIED TO ONE CHARACTER
+selected_character = 0
 character_stats = {
-    0: {"name": "bur", "max_health": 8, "money_multiplier": 1.0},
-    1: {"name": "also bur", "max_health": 6, "money_multiplier": 1.5},
-    2: {"name": "definitely not bur", "max_health": 10, "money_multiplier": 0.7}
+    0: {"name": "bur", "max_health": 8, "damage_multiplier": 1.0}
 }
 
 clock = pygame.time.Clock()
@@ -44,14 +119,210 @@ player_health = 8
 max_health = 8
 invincible_timer = 0
 INVINCIBLE_DURATION = FPS * 1.5
-points = 0
-shop_active = False
+attack_active = False
 max_health_upgrades = 0  # Track number of max health upgrades purchased
-speed_upgrades = 0  # Track number of speed upgrades purchased
+
+# Attack system variables
+enemy_health = 100
+max_enemy_health = 100
+attack_flavor_texts = []  # Will be populated with loaded sprites
+
+# Load attack flavor text sprites
+flavor_text_num = 0
+while True:
+    try:
+        flavor_sprite = pygame.image.load(f"attack_text_{flavor_text_num}.png").convert_alpha()
+        # Scale to much bigger size - take up most of the screen
+        original_width, original_height = flavor_sprite.get_size()
+        # Scale to fit within 1400x800 (keeping aspect ratio)
+        scale_factor = min(1400 / original_width, 800 / original_height)
+        new_width = int(original_width * scale_factor)
+        new_height = int(original_height * scale_factor)
+        flavor_sprite = pygame.transform.scale(flavor_sprite, (new_width, new_height))
+        attack_flavor_texts.append(flavor_sprite)
+        flavor_text_num += 1
+    except:
+        break
+
+# Fallback if no custom sprites
+if not attack_flavor_texts:
+    fallback_texts = [
+        "You focus your energy...",
+        "A surge of power flows through you!",
+        "Time to strike back!",
+        "You prepare your counterattack!",
+        "Your determination burns bright!",
+        "You channel your strength!",
+        "Ready to unleash fury!",
+        "A moment of opportunity appears!"
+    ]
+    # Create simple text sprites as fallback
+    for text in fallback_texts:
+        text_sprite = pygame.Surface((1200, 400), pygame.SRCALPHA)
+        pygame.draw.rect(text_sprite, (50, 50, 50), (0, 0, 1200, 400))
+        pygame.draw.rect(text_sprite, WHITE, (0, 0, 1200, 400), 3)
+        text_surface = shop_font.render(text, True, WHITE)
+        text_rect = text_surface.get_rect(center=(600, 200))
+        text_sprite.blit(text_surface, text_rect)
+        attack_flavor_texts.append(text_sprite)
+
+# QTE (Quick Time Event) variables
+qte_active = False
+qte_position = 0  # 0-100, position along the rectangle
+qte_speed = 2  # Pixels per frame
+qte_direction = 1  # 1 or -1
+qte_bar_length = 400
+qte_target_position = 50  # Middle of the bar
+qte_perfect_range = 5  # +/- range for perfect hit
+qte_good_range = 15  # +/- range for good hit
 
 font = pygame.font.SysFont(None, 36)
 shop_font = pygame.font.SysFont(None, 48)
 small_font = pygame.font.SysFont(None, 24)
+
+# Custom text rendering with letter sprites
+letter_sprites = {}
+letter_width = 16  # Default width for each letter
+letter_height = 24  # Default height for each letter
+letter_spacing = 2  # Spacing between letters
+
+def load_letter_sprites():
+    """Load all letter sprites A-Z, 0-9, and special characters"""
+    global letter_sprites, letter_width, letter_height
+    
+    import os
+    
+    # Check if letters folder exists
+    if not os.path.exists('letters'):
+        print("WARNING: 'letters' folder not found!")
+        print(f"Current directory: {os.getcwd()}")
+        print("Please create a 'letters' folder with letter sprite images.")
+    else:
+        print(f"Letters folder found at: {os.path.abspath('letters')}")
+        files = os.listdir('letters')
+        print(f"Files in letters folder: {len(files)} files")
+        if len(files) > 0:
+            print(f"Sample files: {files[:5]}")
+    
+    characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?.-:,'/() "
+    
+    # First try to load at least one letter to get dimensions
+    first_loaded = False
+    loaded_sprites = 0
+    
+    for char in characters:
+        try:
+            # Try loading individual letter files
+            if char == ' ':
+                filename = 'letters/space.png'
+            elif char == '!':
+                filename = 'letters/exclamation.png'
+            elif char == '?':
+                filename = 'letters/question.png'
+            elif char == '.':
+                filename = 'letters/period.png'
+            elif char == '-':
+                filename = 'letters/dash.png'
+            elif char == ':':
+                filename = 'letters/colon.png'
+            elif char == ',':
+                filename = 'letters/comma.png'
+            elif char == "'":
+                filename = 'letters/apostrophe.png'
+            elif char == '/':
+                filename = 'letters/slash.png'
+            elif char == '(':
+                filename = 'letters/lparen.png'
+            elif char == ')':
+                filename = 'letters/rparen.png'
+            else:
+                filename = f'letters/{char}.png'
+            
+            sprite = pygame.image.load(filename).convert_alpha()
+            letter_sprites[char] = sprite
+            loaded_sprites += 1
+            
+            # Update default dimensions based on first loaded sprite
+            if not first_loaded:
+                letter_width = sprite.get_width()
+                letter_height = sprite.get_height()
+                first_loaded = True
+                print(f"✓ Letter sprites loaded! Size: {letter_width}x{letter_height}")
+        except Exception as e:
+            # Create fallback sprite with pygame font
+            if not first_loaded:
+                # Set default dimensions if nothing loaded yet
+                letter_width = 16
+                letter_height = 24
+            
+            fallback_surface = pygame.Surface((letter_width, letter_height), pygame.SRCALPHA)
+            if char == ' ':
+                # Space is just transparent
+                pass
+            else:
+                # Render with pygame font as fallback
+                fallback_text = font.render(char, True, WHITE)
+                # Center it in the surface
+                text_rect = fallback_text.get_rect(center=(letter_width // 2, letter_height // 2))
+                fallback_surface.blit(fallback_text, text_rect)
+            letter_sprites[char] = fallback_surface
+    
+    if not first_loaded:
+        print("⚠ WARNING: No letter sprites found in letters/ folder!")
+        print("   Using fallback pygame font rendering instead.")
+        print("   Place letter sprite PNGs in a 'letters' folder to use custom fonts.")
+    else:
+        print(f"✓ Loaded {loaded_sprites} custom letter sprites")
+    
+    return loaded_sprites
+
+def render_text(text, color=WHITE, scale=1.0):
+    """Render text using letter sprites
+    Returns a surface with the rendered text"""
+    
+    text = text.upper()  # Convert to uppercase
+    
+    # Calculate total width
+    total_width = 0
+    for char in text:
+        if char in letter_sprites:
+            total_width += int((letter_sprites[char].get_width() + letter_spacing) * scale)
+        elif char == ' ':
+            total_width += int((letter_width // 2 + letter_spacing) * scale)
+    
+    # Create surface
+    height = int(letter_height * scale)
+    surface = pygame.Surface((max(total_width, 1), height), pygame.SRCALPHA)
+    
+    # Draw each letter
+    x_pos = 0
+    for char in text:
+        if char in letter_sprites:
+            letter = letter_sprites[char]
+            
+            # Scale if needed
+            if scale != 1.0:
+                new_width = int(letter.get_width() * scale)
+                new_height = int(letter.get_height() * scale)
+                letter = pygame.transform.scale(letter, (new_width, new_height))
+            
+            # Apply color tint if not white
+            if color != WHITE:
+                colored_letter = letter.copy()
+                color_overlay = pygame.Surface(colored_letter.get_size(), pygame.SRCALPHA)
+                color_overlay.fill(color)
+                colored_letter.blit(color_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                letter = colored_letter
+            
+            surface.blit(letter, (x_pos, 0))
+            x_pos += int((letter_sprites[char].get_width() + letter_spacing) * scale)
+        elif char == ' ':
+            x_pos += int((letter_width // 2 + letter_spacing) * scale)
+    
+    return surface
+
+# Load letter sprites on initialization
+loaded_count = load_letter_sprites()
 
 base_pattern_duration = 5000
 pattern_duration = base_pattern_duration
@@ -71,75 +342,218 @@ pattern_spawn_timer = 0
 current_cycle_patterns = []
 current_pattern_index = 0
 
-# Load sprites
+# Load bullet sprite (will be overridden per enemy)
 bullet_img = pygame.image.load("bullet.png").convert_alpha()
-bullet_img = pygame.transform.scale(bullet_img, (12, 12))  # Multiplied by 1.5 from 8x8
+bullet_img = pygame.transform.scale(bullet_img, (12, 12))
 
-# Load background sprite
-try:
-    background_img = pygame.image.load("background.png").convert()
-    background_img = pygame.transform.scale(background_img, (WIDTH, HEIGHT))
-except:
-    # Fallback to black background if no sprite available
-    background_img = pygame.Surface((WIDTH, HEIGHT))
-    background_img.fill(BLACK)
+def load_enemy_assets(enemy_id):
+    """Load all assets for a specific enemy"""
+    global background_frames, enemy_frames, hard_enemy_frames, bullet_img
+    global background_current_frame, background_frame_counter
+    global enemy_current_frame, enemy_frame_counter
+    
+    enemy_data = ENEMIES[enemy_id]
+    bg_name = enemy_data["background"]
+    
+    # Reset animation counters
+    background_current_frame = 0
+    background_frame_counter = 0
+    enemy_current_frame = 0
+    enemy_frame_counter = 0
+    
+    # Load background for this enemy
+    background_frames = []
+    frame_num = 0
+    while True:
+        try:
+            frame = pygame.image.load(f"{bg_name}_{frame_num}.png").convert()
+            frame = pygame.transform.scale(frame, (WIDTH, HEIGHT))
+            background_frames.append(frame)
+            frame_num += 1
+        except:
+            break
+    
+    if not background_frames:
+        try:
+            bg = pygame.image.load(f"{bg_name}.png").convert()
+            bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
+            background_frames = [bg]
+        except:
+            bg = pygame.Surface((WIDTH, HEIGHT))
+            bg.fill(BLACK)
+            background_frames = [bg]
+    
+    # Load enemy sprite for this enemy
+    enemy_frames = []
+    frame_num = 0
+    while True:
+        try:
+            frame = pygame.image.load(f"enemy{enemy_id}_{frame_num}.png").convert_alpha()
+            original_width, original_height = frame.get_size()
+            scale_factor = min(600 / original_width, 600 / original_height)
+            new_width = int(original_width * scale_factor)
+            new_height = int(original_height * scale_factor)
+            frame = pygame.transform.scale(frame, (new_width, new_height))
+            enemy_frames.append(frame)
+            frame_num += 1
+        except:
+            break
+    
+    if not enemy_frames:
+        try:
+            enemy_img = pygame.image.load(f"enemy{enemy_id}.png").convert_alpha()
+            original_width, original_height = enemy_img.get_size()
+            scale_factor = min(600 / original_width, 600 / original_height)
+            new_width = int(original_width * scale_factor)
+            new_height = int(original_height * scale_factor)
+            enemy_img = pygame.transform.scale(enemy_img, (new_width, new_height))
+            enemy_frames = [enemy_img]
+        except:
+            enemy_img = pygame.Surface((600, 600), pygame.SRCALPHA)
+            pygame.draw.circle(enemy_img, RED, (300, 300), 250)
+            enemy_frames = [enemy_img]
+    
+    # Load hard mode enemy sprite
+    hard_enemy_frames = []
+    frame_num = 0
+    while True:
+        try:
+            frame = pygame.image.load(f"hard_enemy{enemy_id}_{frame_num}.png").convert_alpha()
+            original_width, original_height = frame.get_size()
+            scale_factor = min(600 / original_width, 600 / original_height)
+            new_width = int(original_width * scale_factor)
+            new_height = int(original_height * scale_factor)
+            frame = pygame.transform.scale(frame, (new_width, new_height))
+            hard_enemy_frames.append(frame)
+            frame_num += 1
+        except:
+            break
+    
+    if not hard_enemy_frames:
+        try:
+            hard_enemy_img = pygame.image.load(f"hard_enemy{enemy_id}.png").convert_alpha()
+            original_width, original_height = hard_enemy_img.get_size()
+            scale_factor = min(600 / original_width, 600 / original_height)
+            new_width = int(original_width * scale_factor)
+            new_height = int(original_height * scale_factor)
+            hard_enemy_img = pygame.transform.scale(hard_enemy_img, (new_width, new_height))
+            hard_enemy_frames = [hard_enemy_img]
+        except:
+            # Fallback - purple tint
+            hard_enemy_frames = []
+            for frame in enemy_frames:
+                hard_frame = frame.copy()
+                purple_overlay = pygame.Surface(hard_frame.get_size())
+                purple_overlay.fill((128, 0, 128))
+                hard_frame.blit(purple_overlay, (0, 0), special_flags=pygame.BLEND_MULT)
+                hard_enemy_frames.append(hard_frame)
+    
+    # Load bullet sprite for this enemy
+    try:
+        bullet_img = pygame.image.load(f"bullet{enemy_id}.png").convert_alpha()
+        bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+    except:
+        # Use default bullet
+        bullet_img = pygame.image.load("bullet.png").convert_alpha()
+        bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+    
+    # Load and play music for this enemy
+    music_name = enemy_data["music"]
+    music_loaded = False
+    
+    # Try multiple formats in order of preference: .ogg (best quality/performance), .mp3, .wav
+    for ext in ['.ogg', '.mp3', '.wav']:
+        try:
+            pygame.mixer.music.load(music_name + ext)
+            pygame.mixer.music.play(-1)  # Loop indefinitely
+            music_loaded = True
+            break
+        except:
+            continue
+    
+    if not music_loaded:
+        # Try without extension (in case it's already included)
+        try:
+            pygame.mixer.music.load(music_name)
+            pygame.mixer.music.play(-1)
+        except:
+            pass  # No music file found, continue without music
 
-# Character sprites - you'll need to provide these
-try:
-    player_imgs = [
-        pygame.image.load("player1.png").convert_alpha(),
-        pygame.image.load("player2.png").convert_alpha(), 
-        pygame.image.load("player3.png").convert_alpha()
-    ]
-    # Scale all character sprites
-    for i in range(len(player_imgs)):
-        player_imgs[i] = pygame.transform.scale(player_imgs[i], (30, 30))  # Multiplied by 1.5 from 20x20
-except:
-    # Fallback if custom sprites aren't available
-    player_imgs = [
-        pygame.image.load("player.png").convert_alpha(),
-        pygame.image.load("player.png").convert_alpha(),
-        pygame.image.load("player.png").convert_alpha()
-    ]
-    for i in range(len(player_imgs)):
-        player_imgs[i] = pygame.transform.scale(player_imgs[i], (30, 30))  # Multiplied by 1.5 from 20x20
+# Initial load will be done after enemy selection
 
-# Enemy sprite
-try:
-    enemy_img = pygame.image.load("enemy.png").convert_alpha()
-    # Enemy is bigger than the box (450px), let's make it 600px
-    enemy_img = pygame.transform.scale(enemy_img, (600, 600))
-except:
-    # Fallback if custom sprite isn't available - create a simple red circle
-    enemy_img = pygame.Surface((600, 600), pygame.SRCALPHA)
-    pygame.draw.circle(enemy_img, RED, (300, 300), 250)
+# Placeholder variables (will be set by load_enemy_assets)
+background_frames = []
+background_animation_speed = 10
+background_current_frame = 0
+background_frame_counter = 0
+
+enemy_frames = []
+hard_enemy_frames = []
+enemy_animation_speed = 10
+enemy_current_frame = 0
+enemy_frame_counter = 0
 
 # Enemy position (right side of screen)
-enemy_x = WIDTH - 650  # Positioned on the right side
-enemy_y = HEIGHT // 2 - 250  # Centered vertically
+enemy_x = WIDTH - 650
+enemy_y = HEIGHT // 2 - 250
 
-# Ally player sprites (3 different ones based on character selection)
+# Character sprites - single character only
 try:
-    ally_imgs = [
-        pygame.image.load("ally1.png").convert_alpha(),
-        pygame.image.load("ally2.png").convert_alpha(),
-        pygame.image.load("ally3.png").convert_alpha()
-    ]
-    # Scale all ally sprites to match enemy size
-    for i in range(len(ally_imgs)):
-        ally_imgs[i] = pygame.transform.scale(ally_imgs[i], (600, 600))
+    player_img = pygame.image.load("player.png").convert_alpha()
+    player_img = pygame.transform.scale(player_img, (30, 30))
+    player_imgs = [player_img]  # Keep as list for compatibility
 except:
-    # Fallback if custom sprites aren't available - create simple colored circles
-    ally_imgs = []
-    colors = [BLUE, GREEN, YELLOW]  # Different colors for each character
-    for color in colors:
-        ally_img = pygame.Surface((600, 600), pygame.SRCALPHA)
-        pygame.draw.circle(ally_img, color, (300, 300), 250)
-        ally_imgs.append(ally_img)
+    player_img = pygame.Surface((30, 30), pygame.SRCALPHA)
+    pygame.draw.circle(player_img, BLUE, (15, 15), 12)
+    player_imgs = [player_img]
+
+# Ally player sprites (single character)
+try:
+    ally_img = pygame.image.load("ally.png").convert_alpha()
+    original_width, original_height = ally_img.get_size()
+    scale_factor = min(600 / original_width, 600 / original_height)
+    new_width = int(original_width * scale_factor)
+    new_height = int(original_height * scale_factor)
+    ally_img = pygame.transform.scale(ally_img, (new_width, new_height))
+    ally_frames_list = [[ally_img]]
+except:
+    ally_img = pygame.Surface((600, 600), pygame.SRCALPHA)
+    pygame.draw.circle(ally_img, BLUE, (300, 300), 250)
+    ally_frames_list = [[ally_img]]
+
+ally_animation_speed = 10
+ally_current_frame = 0
+ally_frame_counter = 0
 
 # Ally position (left side of screen, mirrored from enemy)
-ally_x = 50  # Positioned on the left side (same distance as enemy: 650 from right = 50 from left)
-ally_y = HEIGHT // 2 - 250  # Centered vertically (same as enemy)
+ally_x = 50
+ally_y = HEIGHT // 2 - 250
+
+def save_game():
+    """Save game progress to file"""
+    save_data = {
+        "defeated_enemies": list(defeated_enemies),
+        "current_enemy": current_enemy_id
+    }
+    try:
+        with open(save_file, 'w') as f:
+            json.dump(save_data, f)
+    except:
+        pass  # Fail silently if save doesn't work
+
+def load_game():
+    """Load game progress from file"""
+    global defeated_enemies, current_enemy_id
+    try:
+        if os.path.exists(save_file):
+            with open(save_file, 'r') as f:
+                save_data = json.load(f)
+                defeated_enemies = set(save_data.get("defeated_enemies", []))
+                current_enemy_id = save_data.get("current_enemy", 4)
+                return True
+    except:
+        pass
+    return False
 
 def initialize_character_stats():
     """Initialize player stats based on selected character"""
@@ -148,15 +562,9 @@ def initialize_character_stats():
     max_health = stats["max_health"]
     player_health = max_health
 
-def get_money_multiplier():
-    """Get the money multiplier for the selected character"""
-    return character_stats[selected_character]["money_multiplier"]
-
-def get_damage_multiplier():
-    """Calculate damage multiplier based on current cycle count"""
-    # Every 5 cycles, damage doubles: 1-5=1x, 6-10=2x, 11-15=4x, etc.
-    tier = (cycle_count - 1) // 5  # 0-indexed tier (0, 1, 2, 3, ...)
-    return 2 ** tier
+def get_character_damage_multiplier():
+    """Get the damage multiplier for the selected character"""
+    return character_stats[selected_character]["damage_multiplier"]
 
 def create_hit_particles(x, y, count=4):
     """Create particle effects when player is hit - with particle limit to prevent crashes"""
@@ -317,10 +725,26 @@ def move_bullets():
         if bullet['type'] == 'spiral':
             bullet['x'] += bullet['vx']
             bullet['y'] += bullet['vy']
-        elif bullet['type'] == 'wave':
+        elif bullet['type'] == 'bouncing':
+            # Move bullet
             bullet['x'] += bullet['vx']
-            bullet['y'] = bullet['base_y'] + math.sin(bullet['wave_phase']) * bullet['wave_amplitude']
-            bullet['wave_phase'] += bullet['wave_speed']
+            bullet['y'] += bullet['vy']
+            
+            # Bounce off play area walls
+            if bullet['x'] - 6 < box_x or bullet['x'] + 6 > box_x + box_size:
+                bullet['vx'] *= -1
+                # Clamp position
+                bullet['x'] = max(box_x + 6, min(box_x + box_size - 6, bullet['x']))
+            
+            if bullet['y'] - 6 < box_y or bullet['y'] + 6 > box_y + box_size:
+                bullet['vy'] *= -1
+                # Clamp position
+                bullet['y'] = max(box_y + 6, min(box_y + box_size - 6, bullet['y']))
+            
+            # Decrease lifetime
+            bullet['life_time'] -= 1
+            if bullet['life_time'] <= 0:
+                bullets.remove(bullet)
         elif bullet['type'] == 'targeted':
             if bullet.get('homing_delay', 0) > 0:
                 bullet['homing_delay'] -= 1
@@ -397,7 +821,12 @@ def move_bullets():
                 continue
         elif bullet['type'] == 'slash_attack':
             # Handle slash attack timing
-            if bullet['state'] == 'warning':
+            if bullet['state'] == 'delayed':
+                # Count down delay before starting warning
+                bullet['delay'] -= 1
+                if bullet['delay'] <= 0:
+                    bullet['state'] = 'warning'
+            elif bullet['state'] == 'warning':
                 bullet['warning_time'] -= 1
                 if bullet['warning_time'] <= 0:
                     bullet['state'] = 'active'
@@ -407,8 +836,8 @@ def move_bullets():
                     bullets.remove(bullet)
                     continue
         
-        # Remove bullets that have moved off screen (except for targeted bullets and slash attacks which have their own life_time)
-        if bullet['type'] not in ['targeted', 'giant_explosive', 'slash_attack']:
+        # Remove bullets that have moved off screen (except for targeted bullets, bouncing bullets, and slash attacks which have their own life_time)
+        if bullet['type'] not in ['targeted', 'giant_explosive', 'slash_attack', 'bouncing']:
             if (bullet['x'] < -50 or bullet['x'] > WIDTH + 50 or 
                 bullet['y'] < -50 or bullet['y'] > HEIGHT + 50):
                 if bullet in bullets:  # Safety check
@@ -417,7 +846,7 @@ def move_bullets():
 def spawn_spiral():
     global spiral_angle
     center_x, center_y = WIDTH // 2, 150
-    speed = 4
+    speed = 4 * apply_difficulty_scaling()
     vx = math.cos(spiral_angle) * speed
     vy = math.sin(spiral_angle) * speed
     bullet = {
@@ -425,36 +854,145 @@ def spawn_spiral():
         'rotation': 0, 'rotation_speed': 5
     }
     bullets.append(bullet)
-    spiral_angle += 0.15
+    spiral_angle += 0.15 * apply_difficulty_scaling()  # Spiral tighter at higher difficulty
 
-def spawn_wave():
-    speed = 4
-    amplitude = 45  # Scaled by 0.75 from 60
-    wave_speed = 0.1
-    bullets_per_wave = 7
-    spacing = 30  # Scaled by 0.75 from 40
+def spawn_grid_slashes():
+    """Spawn grid of slashes that rotate from squares to diamonds to squares"""
+    # Grid parameters
+    grid_cols = 3
+    grid_rows = 3
+    cell_width = box_size // grid_cols
+    cell_height = box_size // grid_rows
+    
+    # Calculate positions for grid intersections
+    for row in range(grid_rows + 1):
+        for col in range(grid_cols + 1):
+            x = box_x + col * cell_width
+            y = box_y + row * cell_height
+            
+            # First wave: horizontal and vertical slashes (square pattern)
+            # Horizontal slashes
+            bullets.append({
+                'x': x,
+                'y': y,
+                'type': 'slash_attack',
+                'warning_time': 40,  # Longer warning for complex pattern
+                'active_time': 8,    # Shorter active time
+                'width': max(WIDTH, HEIGHT) * 2,
+                'height': 8,
+                'angle': 0,  # Horizontal
+                'state': 'warning',
+                'phase': 0,  # Track which phase this is
+                'delay': 0   # No delay for first wave
+            })
+            # Vertical slashes
+            bullets.append({
+                'x': x,
+                'y': y,
+                'type': 'slash_attack',
+                'warning_time': 40,
+                'active_time': 8,
+                'width': max(WIDTH, HEIGHT) * 2,
+                'height': 8,
+                'angle': 90,  # Vertical
+                'state': 'warning',
+                'phase': 0,
+                'delay': 0
+            })
+            
+            # Second wave: diagonal slashes (diamond pattern) - delayed
+            bullets.append({
+                'x': x,
+                'y': y,
+                'type': 'slash_attack',
+                'warning_time': 40,
+                'active_time': 8,
+                'width': max(WIDTH, HEIGHT) * 2,
+                'height': 8,
+                'angle': 45,  # Diagonal
+                'state': 'delayed',  # New state for delayed slashes
+                'phase': 1,
+                'delay': 60  # Delay before warning starts (1 second)
+            })
+            bullets.append({
+                'x': x,
+                'y': y,
+                'type': 'slash_attack',
+                'warning_time': 40,
+                'active_time': 8,
+                'width': max(WIDTH, HEIGHT) * 2,
+                'height': 8,
+                'angle': 135,  # Other diagonal
+                'state': 'delayed',
+                'phase': 1,
+                'delay': 60
+            })
+            
+            # Third wave: back to horizontal/vertical but offset positions
+            offset_x = x + cell_width // 2
+            offset_y = y + cell_height // 2
+            
+            # Only spawn if within play area
+            if offset_x <= box_x + box_size and offset_y <= box_y + box_size:
+                bullets.append({
+                    'x': offset_x,
+                    'y': offset_y,
+                    'type': 'slash_attack',
+                    'warning_time': 40,
+                    'active_time': 8,
+                    'width': max(WIDTH, HEIGHT) * 2,
+                    'height': 8,
+                    'angle': 0,
+                    'state': 'delayed',
+                    'phase': 2,
+                    'delay': 120  # Delay 2 seconds
+                })
+                bullets.append({
+                    'x': offset_x,
+                    'y': offset_y,
+                    'type': 'slash_attack',
+                    'warning_time': 40,
+                    'active_time': 8,
+                    'width': max(WIDTH, HEIGHT) * 2,
+                    'height': 8,
+                    'angle': 90,
+                    'state': 'delayed',
+                    'phase': 2,
+                    'delay': 120
+                })
 
-    start_y = random.randint(200, HEIGHT - 200 - spacing * (bullets_per_wave - 1))
-    for i in range(bullets_per_wave):
-        base_y = start_y + i * spacing
+def spawn_bouncing_bullets():
+    """Spawn bullets that bounce off the edges of the play area"""
+    difficulty = apply_difficulty_scaling()
+    num_bullets = min(5, int(3 * difficulty))
+    
+    for i in range(num_bullets):
+        # Random starting position inside play area
+        spawn_x = random.randint(box_x + 30, box_x + box_size - 30)
+        spawn_y = random.randint(box_y + 30, box_y + box_size - 30)
+        
+        # Random velocity - faster at higher difficulty
+        speed = random.uniform(3, 6) * difficulty
+        angle = random.uniform(0, 2 * math.pi)
+        vx = math.cos(angle) * speed
+        vy = math.sin(angle) * speed
+        
         bullet = {
-            'x': 0,
-            'base_y': base_y,
-            'wave_phase': i * 0.5,
-            'wave_amplitude': amplitude,
-            'wave_speed': wave_speed,
-            'vx': speed,
-            'type': 'wave',
-            'y': base_y,
+            'x': spawn_x,
+            'y': spawn_y,
+            'vx': vx,
+            'vy': vy,
+            'type': 'bouncing',
             'rotation': 0,
-            'rotation_speed': 5
+            'rotation_speed': 5,
+            'life_time': FPS * 8  # Last 8 seconds
         }
         bullets.append(bullet)
 
 def spawn_targeted():
     spawn_x = random.randint(50, WIDTH - 50)
     spawn_y = 0
-    speed = 3.5
+    speed = 3.5 * apply_difficulty_scaling()
     life_time = FPS * 5
     bullet = {
         'x': spawn_x, 'y': spawn_y, 'speed': speed, 'type': 'targeted', 
@@ -464,8 +1002,9 @@ def spawn_targeted():
 
 def spawn_radial_burst():
     center_x, center_y = WIDTH // 2, HEIGHT // 2
-    bullet_count = 24
-    speed = 5
+    difficulty = apply_difficulty_scaling()
+    bullet_count = min(36, int(24 * difficulty))  # More bullets at higher difficulty
+    speed = 5 * difficulty
     for i in range(bullet_count):
         angle = (2 * math.pi / bullet_count) * i
         vx = math.cos(angle) * speed
@@ -479,7 +1018,7 @@ def spawn_radial_burst():
 def spawn_expanding_spiral():
     global expanding_spiral_angle
     center_x, center_y = WIDTH // 2, HEIGHT // 2
-    expanding_spiral_angle += 0.1
+    expanding_spiral_angle += 0.1 * apply_difficulty_scaling()
     bullet = {
         'center_x': center_x,
         'center_y': center_y,
@@ -494,7 +1033,7 @@ def spawn_expanding_spiral():
 def spawn_double_spiral():
     global double_spiral_angle
     center_x, center_y = WIDTH // 2, HEIGHT // 2
-    double_spiral_angle += 0.3
+    double_spiral_angle += 0.3 * apply_difficulty_scaling()
 
     for direction in (1, -1):
         bullet = {
@@ -512,7 +1051,7 @@ def spawn_double_spiral():
 def spawn_random_rain():
     # Can spawn from walls too now
     wall_choice = random.choice(['top', 'bottom', 'left', 'right'])
-    speed = random.uniform(5, 8)
+    speed = random.uniform(5, 8) * apply_difficulty_scaling()
     
     if wall_choice == 'top':
         spawn_x = random.randint(0, WIDTH)
@@ -548,28 +1087,29 @@ def spawn_random_rain():
         bullets.append(bullet)
 
 def spawn_homing_burst():
-    # Spawn 5 giant bullets that fall from above and explode into radial bursts
-    giant_bullet_count = 5  # Increased from 4
+    # Spawn giant bullets that fall from above and explode into radial bursts
+    difficulty = apply_difficulty_scaling()
+    giant_bullet_count = min(8, int(5 * difficulty))
     
     for i in range(giant_bullet_count):
         # Random x position across the top of the screen
-        spawn_x = random.randint(80, WIDTH - 80)  # Closer to edges
+        spawn_x = random.randint(80, WIDTH - 80)
         spawn_y = -50  # Start above screen
         
-        # Shorter, more urgent detonation time
-        detonate_time = random.randint(int(FPS * 1.0), int(FPS * 2.5))
+        # Shorter detonation time at higher difficulty
+        detonate_time = random.randint(int(FPS * 2.0 / difficulty), int(FPS * 3.0 / difficulty))
         
         bullet = {
             'x': spawn_x,
             'y': spawn_y,
             'vx': 0,  # No horizontal movement
-            'vy': 3,  # Faster fall speed
-            'speed': 3,
+            'vy': 3 * difficulty,  # Faster fall at higher difficulty
+            'speed': 3 * difficulty,
             'type': 'giant_explosive',
             'life_time': detonate_time,
             'size': 5,  # 5x normal size
             'rotation': 0,
-            'rotation_speed': random.uniform(2, 5),  # Keep slow rotation
+            'rotation_speed': random.uniform(2, 5),
             'exploded': False
         }
         bullets.append(bullet)
@@ -577,7 +1117,7 @@ def spawn_homing_burst():
 def spawn_laser_beams():
     beam_width = WIDTH
     beam_height = 10
-    speed = 8
+    speed = 8 * apply_difficulty_scaling()
     y_start = 0
     color = random.choice(['blue', 'orange'])
     bullets.append({
@@ -592,7 +1132,7 @@ def spawn_laser_beams():
 
 def spawn_cross_pattern():
     center_x, center_y = WIDTH // 2, HEIGHT // 2
-    speed = 6
+    speed = 6 * apply_difficulty_scaling()
     for offset in range(-112, 113, 56):  # Scaled by 0.75 from -150 to 150, step 75
         bullet1 = {
             'x': center_x + offset, 'y': 0, 'vx': 0, 'vy': speed, 'type': 'radial',
@@ -743,7 +1283,7 @@ def get_pattern_config(pattern_id):
     """Returns (total_bullets, spawn_interval) for each pattern"""
     configs = {
         0: (330, 1),      # spiral: ~330 bullets over 5 seconds
-        1: (50, 10),      # wave: 50 waves (350 bullets total)
+        1: (10, 30),      # bouncing: 10 volleys (30 bullets total)
         2: (16, 30),      # targeted: 16 bullets
         3: (5, 100),      # radial_burst: 5 bursts (120 bullets total)
         4: (100, 5),      # expanding_spiral: 100 bullets
@@ -755,16 +1295,52 @@ def get_pattern_config(pattern_id):
         10: (10, 50),     # zigzag: 10 volleys (60 bullets total)
         11: (2, 200),     # grid_rain: 2 grids (210 bullets total)
         12: (8, 50),      # slash_attacks: 8 volleys (24 slashes total)
+        13: (1, 500),     # grid_slashes: 1 spawn (complex pattern, long duration)
     }
     return configs.get(pattern_id, (100, 10))
 
 def randomize_cycle_patterns():
     """Create a randomized selection of 8 patterns for the current cycle"""
     global current_cycle_patterns, current_pattern_index
-    all_patterns = list(range(13))  # All pattern IDs 0-12
-    random.shuffle(all_patterns)
-    current_cycle_patterns = all_patterns[:8]  # Select 8 random patterns
+    
+    # Get enemy data for difficulty-based pattern selection
+    enemy_data = ENEMIES[current_enemy_id]
+    available_patterns = enemy_data["attacks"]
+    
+    # Shuffle available patterns
+    shuffled = list(available_patterns)
+    random.shuffle(shuffled)
+    
+    # Select patterns based on difficulty
+    difficulty = enemy_data["difficulty"]
+    
+    if difficulty <= 0.5:  # Easier enemies (1-2)
+        pattern_count = 5
+    elif difficulty <= 0.9:  # Medium enemies (3)
+        pattern_count = 6
+    elif difficulty <= 1.1:  # Current difficulty (4)
+        pattern_count = 8
+    elif difficulty <= 1.5:  # Harder (5)
+        pattern_count = 9
+    elif difficulty <= 1.8:  # Very hard (6)
+        pattern_count = 10
+    else:  # Hardest (7-8)
+        pattern_count = min(12, len(shuffled))
+    
+    current_cycle_patterns = shuffled[:pattern_count]
     current_pattern_index = 0
+
+def apply_difficulty_scaling():
+    """Apply difficulty scaling to bullet speeds and spawn rates based on enemy"""
+    enemy_data = ENEMIES[current_enemy_id]
+    difficulty = enemy_data["difficulty"]
+    
+    # This multiplier affects:
+    # - Bullet speeds (applied in spawn functions)
+    # - Spawn intervals (patterns spawn faster)
+    # - Pattern duration (cycles complete faster at higher difficulty)
+    
+    return difficulty
 
 def is_cycle_complete():
     """Check if the cycle is complete (all patterns done and no bullets left)"""
@@ -796,9 +1372,6 @@ def handle_pattern_spawning():
         pattern_bullets_spawned = 0
         pattern_spawn_timer = 0
         
-        # Award points for completing a pattern (with character multiplier)
-        points += int(10 * get_money_multiplier())
-        
         return current_pattern_index >= len(current_cycle_patterns)  # Return true if all patterns done
     
     # Check if it's time to spawn
@@ -811,7 +1384,7 @@ def handle_pattern_spawning():
             spawn_spiral()
             pattern_bullets_spawned += 1
         elif current_pattern == 1:
-            spawn_wave()
+            spawn_bouncing_bullets()
             pattern_bullets_spawned += 1
         elif current_pattern == 2:
             spawn_targeted()
@@ -846,6 +1419,9 @@ def handle_pattern_spawning():
         elif current_pattern == 12:
             spawn_slash_attacks()
             pattern_bullets_spawned += 1
+        elif current_pattern == 13:
+            spawn_grid_slashes()
+            pattern_bullets_spawned += 1
     
     return False  # Pattern not complete
 
@@ -854,9 +1430,6 @@ def check_collisions():
     keys = pygame.key.get_pressed()
     moving = keys[pygame.K_w] or keys[pygame.K_a] or keys[pygame.K_s] or keys[pygame.K_d]
     
-    # Get current damage multiplier
-    damage_multiplier = get_damage_multiplier()
-    
     # Check regular bullet collisions
     for bullet in bullets[:]:
         if bullet['type'] == 'laser':
@@ -864,11 +1437,11 @@ def check_collisions():
             if abs(player_pos[0] - rect.centerx) < rect.width // 2 + player_radius and abs(player_pos[1] - rect.centery) < rect.height // 2 + player_radius:
                 if invincible_timer <= 0:
                     if bullet.get('color') == 'blue' and moving:
-                        damage = damage_multiplier
+                        damage = 1
                         player_health -= damage
                         invincible_timer = INVINCIBLE_DURATION
                     elif bullet.get('color') == 'orange' and not moving:
-                        damage = damage_multiplier
+                        damage = 1
                         player_health -= damage
                         invincible_timer = INVINCIBLE_DURATION
         elif bullet['type'] == 'slash_attack':
@@ -890,7 +1463,7 @@ def check_collisions():
                 if (abs(rotated_x) < bullet['width'] // 2 + player_radius and 
                     abs(rotated_y) < bullet['height'] // 2 + player_radius):
                     if invincible_timer <= 0:
-                        damage = damage_multiplier
+                        damage = bullet.get('damage', 1)  # Allow variable damage
                         player_health -= damage
                         invincible_timer = INVINCIBLE_DURATION
         elif bullet['type'] == 'zigzag_horizontal':
@@ -901,7 +1474,7 @@ def check_collisions():
             
             if math.hypot(bullet['x'] - player_pos[0], bullet['y'] - player_pos[1]) < player_radius + collision_radius:
                 if invincible_timer <= 0:
-                    damage = damage_multiplier
+                    damage = bullet.get('damage', 1)  # Allow variable damage
                     player_health -= damage
                     invincible_timer = INVINCIBLE_DURATION
                     create_hit_particles(player_pos[0], player_pos[1])
@@ -913,7 +1486,7 @@ def check_collisions():
             
             if math.hypot(bullet['x'] - player_pos[0], bullet['y'] - player_pos[1]) < player_radius + collision_radius:
                 if invincible_timer <= 0:
-                    damage = damage_multiplier
+                    damage = bullet.get('damage', 1)  # Allow variable damage
                     player_health -= damage
                     invincible_timer = INVINCIBLE_DURATION
                     create_hit_particles(player_pos[0], player_pos[1])
@@ -929,15 +1502,73 @@ def draw_play_area():
     
     # Draw white border (solid)
     pygame.draw.rect(screen, WHITE, (box_x, box_y, box_size, box_size), 2)
+    
+    # Draw enemy health bar below the box
+    health_bar_width = box_size
+    health_bar_height = 20
+    health_bar_x = box_x
+    health_bar_y = box_y + box_size + 10  # 10 pixels below the box
+    
+    # Background
+    pygame.draw.rect(screen, (50, 50, 50), (health_bar_x, health_bar_y, health_bar_width, health_bar_height))
+    
+    # Health fill
+    health_ratio = enemy_health / max_enemy_health
+    health_fill_width = int(health_bar_width * health_ratio)
+    pygame.draw.rect(screen, RED, (health_bar_x, health_bar_y, health_fill_width, health_bar_height))
+    
+    # Border
+    pygame.draw.rect(screen, WHITE, (health_bar_x, health_bar_y, health_bar_width, health_bar_height), 2)
+    
+    # Health text
+    health_text = render_text(f"ENEMY: {enemy_health}/{max_enemy_health}", WHITE, 0.6)
+    health_text_rect = health_text.get_rect(center=(box_x + box_size // 2, health_bar_y + health_bar_height // 2))
+    screen.blit(health_text, health_text_rect)
+
+def draw_background():
+    """Draw the background with animation support"""
+    global background_frame_counter, background_current_frame, background_animation_speed
+    
+    # Update animation frame
+    background_frame_counter += 1
+    if background_frame_counter >= background_animation_speed:
+        background_frame_counter = 0
+        background_current_frame = (background_current_frame + 1) % len(background_frames)
+    
+    # Draw current frame
+    screen.blit(background_frames[background_current_frame], (0, 0))
 
 def draw_enemy():
-    """Draw the enemy sprite on the right side of the screen"""
-    screen.blit(enemy_img, (enemy_x, enemy_y))
+    """Draw the enemy sprite on the right side of the screen (with animation support)"""
+    global enemy_frame_counter, enemy_current_frame, enemy_animation_speed
+    
+    # Choose which frames to use based on hard mode
+    frames_to_use = hard_enemy_frames if hard_mode_active else enemy_frames
+    
+    # Update animation frame
+    enemy_frame_counter += 1
+    if enemy_frame_counter >= enemy_animation_speed:
+        enemy_frame_counter = 0
+        enemy_current_frame = (enemy_current_frame + 1) % len(frames_to_use)
+    
+    # Draw current frame
+    screen.blit(frames_to_use[enemy_current_frame], (enemy_x, enemy_y))
 
 def draw_ally():
-    """Draw the ally sprite on the left side of the screen - changes based on selected character"""
-    ally_img = ally_imgs[selected_character]
-    screen.blit(ally_img, (ally_x, ally_y))
+    """Draw the ally sprite on the left side of the screen - changes based on selected character (with animation support)"""
+    global ally_frame_counter, ally_current_frame, ally_animation_speed
+    
+    # Get frames for selected character
+    ally_frames = ally_frames_list[selected_character]
+    
+    # Update animation frame
+    ally_frame_counter += 1
+    if ally_frame_counter >= ally_animation_speed:
+        ally_frame_counter = 0
+        ally_current_frame = (ally_current_frame + 1) % len(ally_frames)
+    
+    # Draw current frame
+    screen.blit(ally_frames[ally_current_frame], (ally_x, ally_y))
 
 def handle_input():
     keys = pygame.key.get_pressed()
@@ -953,206 +1584,403 @@ def handle_input():
         player_pos[0] += player_speed
 
 def draw_health():
-    damage_multiplier = get_damage_multiplier()
     character_name = character_stats[selected_character]["name"]
     
-    screen.blit(font.render(f"Health: {player_health}/{max_health}", True, WHITE), (10, 10))
-    screen.blit(font.render(f"Points: {points}", True, WHITE), (10, 50))
-    screen.blit(font.render(f"Speed: {player_speed:.1f}", True, WHITE), (10, 90))
-    screen.blit(font.render(f"Cycle: {cycle_count}", True, WHITE), (10, 130))
-    screen.blit(font.render(f"Damage: {damage_multiplier}x", True, (255, 100, 100)), (10, 170))
-    screen.blit(small_font.render(f"Character: {character_name} ({get_money_multiplier():.1f}x money)", True, WHITE), (10, 210))
+    # Use custom text rendering
+    health_text = render_text(f"HEALTH: {player_health}/{max_health}", WHITE, 1.0)
+    screen.blit(health_text, (10, 10))
+    
+    cycle_text = render_text(f"CYCLE: {cycle_count}", WHITE, 1.0)
+    screen.blit(cycle_text, (10, 45))
+    
+    char_text = render_text(f"CHARACTER: {character_name}", WHITE, 0.7)
+    screen.blit(char_text, (10, 80))
 
-def show_shop():
-    global player_health, max_health, points, shop_active, cycle_count, max_health_upgrades, speed_upgrades, player_speed
-    shop_active = True
-    selected_option = 0
+def trigger_hard_mode():
+    """Trigger a really hard attack phase with bullets that deal 2 damage"""
+    global bullets, hard_mode_active
     
-    # Calculate escalating costs
-    max_health_cost = 200 + (max_health_upgrades * 150)  # 200, 350, 500, 650, etc.
-    speed_cost = 150 + (speed_upgrades * 100)  # 150, 250, 350, 450, etc.
+    # Activate hard mode sprite
+    hard_mode_active = True
     
-    # Calculate full heal cost based on missing health (better rate than single heals for 3+ HP, worse for 1-2 HP)
-    missing_health = max_health - player_health
-    if missing_health <= 2:
-        full_heal_cost = missing_health * 60  # More expensive per HP for small amounts (60 vs 50)
-    else:
-        full_heal_cost = missing_health * 40  # Better rate for bulk healing (40 vs 50)
+    # Clear existing bullets
+    bullets.clear()
     
-    shop_options = [
-        {"name": "Heal 1 HP", "cost": 50, "description": "Restore 1 health point"},
-        {"name": "Max Health +1", "cost": max_health_cost, "description": f"Increase maximum health by 1 (#{max_health_upgrades + 1})"},
-        {"name": "Speed +0.5", "cost": speed_cost, "description": f"Increase movement speed by 0.5 (#{speed_upgrades + 1})"},
-        {"name": "Full Heal", "cost": full_heal_cost, "description": f"Restore {missing_health} health ({player_health}/{max_health} → {max_health}/{max_health})"},
-        {"name": "Continue", "cost": 0, "description": "Continue to next cycle"}
-    ]
+    # Give the player a brief moment before bullets start
+    # Spawn difficult but not instant-death patterns
     
-    while shop_active:
+    # Dense spiral from center (slower than before)
+    center_x, center_y = WIDTH // 2, HEIGHT // 2
+    for angle_offset in range(0, 360, 10):  # Every 10 degrees instead of 5
+        angle = math.radians(angle_offset)
+        speed = 4  # Slower (was 6)
+        vx = math.cos(angle) * speed
+        vy = math.sin(angle) * speed
+        bullet = {
+            'x': center_x,
+            'y': center_y,
+            'vx': vx,
+            'vy': vy,
+            'type': 'radial',
+            'rotation': 0,
+            'rotation_speed': 5,
+            'damage': 2  # 2 damage bullets
+        }
+        bullets.append(bullet)
+    
+    # Multiple slash attacks at the player position (but with warning time)
+    for i in range(4):  # 4 slashes instead of 6
+        bullets.append({
+            'x': player_pos[0],
+            'y': player_pos[1],
+            'type': 'slash_attack',
+            'warning_time': 30,  # Full warning time
+            'active_time': 12,
+            'width': max(WIDTH, HEIGHT) * 2,
+            'height': 15,
+            'angle': i * 90,  # Evenly spaced instead of random
+            'state': 'warning',
+            'damage': 2  # 2 damage slashes
+        })
+    
+    # Grid of bullets from sides (less dense, slower)
+    spacing = 80  # More spacing (was 40)
+    speed = 5  # Slower (was 7)
+    
+    for x in range(0, WIDTH, spacing):
+        bullets.append({
+            'x': x,
+            'y': 0,
+            'vx': 0,
+            'vy': speed,
+            'type': 'radial',
+            'rotation': 0,
+            'rotation_speed': 5,
+            'damage': 2
+        })
+        bullets.append({
+            'x': x,
+            'y': HEIGHT,
+            'vx': 0,
+            'vy': -speed,
+            'type': 'radial',
+            'rotation': 0,
+            'rotation_speed': 5,
+            'damage': 2
+        })
+    
+    for y in range(0, HEIGHT, spacing):
+        bullets.append({
+            'x': 0,
+            'y': y,
+            'vx': speed,
+            'vy': 0,
+            'type': 'radial',
+            'rotation': 0,
+            'rotation_speed': 5,
+            'damage': 2
+        })
+        bullets.append({
+            'x': WIDTH,
+            'y': y,
+            'vx': -speed,
+            'vy': 0,
+            'type': 'radial',
+            'rotation': 0,
+            'rotation_speed': 5,
+            'damage': 2
+        })
+
+def show_attack_phase():
+    """Show attack phase with flavor text sprite and QTE"""
+    global attack_active, qte_active, qte_position, qte_direction, enemy_health, player_health
+    
+    attack_active = True
+    
+    # Choose random flavor text sprite
+    flavor_sprite = random.choice(attack_flavor_texts)
+    
+    # Show flavor text screen
+    showing_flavor = True
+    space_pressed = False
+    
+    while showing_flavor:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 exit()
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_w and selected_option > 0:
-                    selected_option -= 1
-                elif event.key == pygame.K_s and selected_option < len(shop_options) - 1:
-                    selected_option += 1
-                elif event.key == pygame.K_SPACE:
-                    option = shop_options[selected_option]
-                    if option["name"] == "Continue":
-                        shop_active = False
-                    elif points >= option["cost"]:
-                        points -= option["cost"]
-                        if option["name"] == "Heal 1 HP" and player_health < max_health:
-                            player_health += 1
-                        elif option["name"] == "Max Health +1":
-                            max_health += 1
-                            # Only heal if already at full health
-                            if player_health == max_health - 1:  # Was at full health before the upgrade
-                                player_health = max_health  # Stay at full health after upgrade
-                            max_health_upgrades += 1  # Track the upgrade
-                            # Recalculate cost for next upgrade and update the option
-                            new_cost = 200 + (max_health_upgrades * 150)
-                            shop_options[1]["cost"] = new_cost
-                            shop_options[1]["description"] = f"Increase maximum health by 1 (#{max_health_upgrades + 1})"
-                        elif option["name"] == "Speed +0.5":
-                            speed_upgrades += 1
-                            player_speed = base_player_speed + (speed_upgrades * 0.5)
-                            # Recalculate cost for next upgrade and update the option
-                            new_cost = 150 + (speed_upgrades * 100)
-                            shop_options[2]["cost"] = new_cost
-                            shop_options[2]["description"] = f"Increase movement speed by 0.5 (#{speed_upgrades + 1})"
-                        elif option["name"] == "Full Heal":
-                            player_health = max_health
-                        
-                        # Recalculate full heal cost after any purchase that might change health
-                        missing_health = max_health - player_health
-                        if missing_health <= 2:
-                            full_heal_cost = missing_health * 60  # More expensive per HP for small amounts
-                        else:
-                            full_heal_cost = missing_health * 40  # Better rate for bulk healing
-                        shop_options[3]["cost"] = full_heal_cost
-                        shop_options[3]["description"] = f"Restore {missing_health} health ({player_health}/{max_health} → {max_health}/{max_health})"
+                if event.key == pygame.K_SPACE and not space_pressed:
+                    space_pressed = True
+                    showing_flavor = False
         
-        # Draw shop
-        screen.fill(BLACK)
+        # Draw background
+        draw_background()
         
-        # Shop title
-        title = shop_font.render("SHOP - Cycle Complete!", True, WHITE)
-        screen.blit(title, (WIDTH // 2 - title.get_width() // 2, 100))
+        # Draw ally and enemy
+        draw_ally()
+        draw_enemy()
         
-        # Points earned message (with character multiplier)
-        cycle_bonus = int(cycle_count * 50 * get_money_multiplier())
-        points_msg = font.render(f"Points Earned This Cycle: +{cycle_bonus}", True, (0, 255, 0))
-        screen.blit(points_msg, (WIDTH // 2 - points_msg.get_width() // 2, 150))
+        # Draw flavor text sprite (centered)
+        flavor_rect = flavor_sprite.get_rect(center=(WIDTH // 2, HEIGHT // 2))
+        screen.blit(flavor_sprite, flavor_rect)
         
-        # Current stats
-        stats_y = 200
-        character_name = character_stats[selected_character]["name"]
-        char_text = font.render(f"Character: {character_name} ({get_money_multiplier():.1f}x money)", True, WHITE)
-        health_text = font.render(f"Current Health: {player_health}/{max_health}", True, WHITE)
-        points_text = font.render(f"Available Points: {points}", True, WHITE)
-        speed_text = font.render(f"Current Speed: {player_speed:.1f}", True, WHITE)
-        damage_multiplier = get_damage_multiplier()
-        damage_text = font.render(f"Current Damage: {damage_multiplier}x", True, (255, 100, 100))
-        upgrades_text = small_font.render(f"Upgrades: Health +{max_health_upgrades}, Speed +{speed_upgrades}", True, (150, 150, 150))
-        screen.blit(char_text, (WIDTH // 2 - char_text.get_width() // 2, stats_y))
-        screen.blit(health_text, (WIDTH // 2 - health_text.get_width() // 2, stats_y + 30))
-        screen.blit(points_text, (WIDTH // 2 - points_text.get_width() // 2, stats_y + 60))
-        screen.blit(speed_text, (WIDTH // 2 - speed_text.get_width() // 2, stats_y + 90))
-        screen.blit(damage_text, (WIDTH // 2 - damage_text.get_width() // 2, stats_y + 120))
-        screen.blit(upgrades_text, (WIDTH // 2 - upgrades_text.get_width() // 2, stats_y + 145))
-        
-        # Shop options
-        option_y = 380
-        for i, option in enumerate(shop_options):
-            color = WHITE
-            if i == selected_option:
-                color = (255, 255, 0)  # Yellow for selected
-                # Draw selection indicator
-                pygame.draw.rect(screen, (50, 50, 50), 
-                               (WIDTH // 2 - 300, option_y + i * 60 - 5, 600, 50))
-            elif option["cost"] > 0 and points < option["cost"]:
-                color = (100, 100, 100)  # Gray for unaffordable
-            elif option["name"] == "Heal 1 HP" and player_health >= max_health:
-                color = (100, 100, 100)  # Gray if already at full health
-            elif option["name"] == "Full Heal" and player_health >= max_health:
-                color = (100, 100, 100)  # Gray if already at full health
-            
-            # Option name and cost
-            if option["cost"] > 0:
-                option_text = f"{option['name']} - {option['cost']} points"
-            else:
-                option_text = option["name"]
-            
-            text = font.render(option_text, True, color)
-            screen.blit(text, (WIDTH // 2 - 280, option_y + i * 60))
-            
-            # Description
-            desc_text = small_font.render(option["description"], True, color)
-            screen.blit(desc_text, (WIDTH // 2 - 280, option_y + i * 60 + 25))
-        
-        # Instructions
-        instructions = small_font.render("Use W/S to navigate, SPACE to select", True, WHITE)
-        screen.blit(instructions, (WIDTH // 2 - instructions.get_width() // 2, HEIGHT - 100))
+        # Draw instruction
+        instruction = render_text("PRESS SPACE TO CONTINUE", WHITE, 0.7)
+        instruction_rect = instruction.get_rect(center=(WIDTH // 2, HEIGHT - 100))
+        screen.blit(instruction, instruction_rect)
         
         pygame.display.flip()
         clock.tick(FPS)
-
-def character_selection():
-    global selected_character
-    title_font = pygame.font.SysFont(None, 72)
-    instruction_font = pygame.font.SysFont(None, 36)
     
-    character_names = ["bur", "also bur", "definitely not bur"]
-    character_descriptions = [
-        "normal",
-        "less hp more money",
-        "more hp less money"
-    ]
+    # Start QTE
+    qte_active = True
+    qte_position = 0
+    qte_direction = 1
+    hit_registered = False
+    freeze_frames = 30  # Half second at 60 FPS
+    fade_frames = 30  # Half second fade
+    frozen_frame = None
+    damage_dealt = 0
+    hit_quality = ""
+    hit_color = WHITE
+    
+    while qte_active:
+        space_pressed_in_qte = False
+        
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_SPACE and not space_pressed_in_qte and not hit_registered:
+                    space_pressed_in_qte = True
+                    hit_registered = True
+                    
+                    # Calculate damage based on position
+                    distance_from_target = abs(qte_position - qte_target_position)
+                    
+                    # Get character damage multiplier
+                    char_damage_mult = get_character_damage_multiplier()
+                    
+                    if distance_from_target <= qte_perfect_range:
+                        damage_dealt = int(20 * char_damage_mult)  # Perfect hit
+                        hit_quality = "PERFECT!"
+                        hit_color = YELLOW
+                    elif distance_from_target <= qte_good_range:
+                        damage_dealt = int(15 * char_damage_mult)  # Good hit
+                        hit_quality = "GOOD!"
+                        hit_color = GREEN
+                    else:
+                        # Scale damage from 1-10 based on distance
+                        max_distance = qte_bar_length // 2
+                        base_damage = max(1, int(10 * (1 - distance_from_target / max_distance)))
+                        damage_dealt = int(base_damage * char_damage_mult)
+                        hit_quality = "HIT"
+                        hit_color = WHITE
+                    
+                    # Heal 2 HP on attack
+                    player_health = min(max_health, player_health + 2)
+                    
+                    # Check if this would kill the enemy
+                    would_kill = enemy_health - damage_dealt <= 0
+                    
+                    # 1/100 chance for hard mode if attack would kill
+                    hard_mode_triggered = False
+                    if would_kill and random.randint(1, 100) == 1:
+                        hard_mode_triggered = True
+                        enemy_health = 1  # Enemy survives at 1 HP
+                    else:
+                        enemy_health = max(0, enemy_health - damage_dealt)
+                    
+                    # Check if enemy was killed
+                    enemy_killed = enemy_health <= 0
+                    
+                    # Special mechanic for Sans (Enemy 6) - he "dodges" the first few attacks
+                    if current_enemy_id == 6 and enemy_killed:
+                        # Sans has dodged! Restore health and count dodges
+                        if not hasattr(show_attack_phase, 'sans_dodge_count'):
+                            show_attack_phase.sans_dodge_count = 0
+                        
+                        if show_attack_phase.sans_dodge_count < 3:  # He dodges 3 times
+                            enemy_health = 1
+                            show_attack_phase.sans_dodge_count += 1
+                            enemy_killed = False
+                            # Override hit text to show dodge
+                            hit_quality = "DODGE!"
+                            hit_color = (100, 200, 255)  # Light blue
+                    
+                    if enemy_killed:
+                        # Mark as defeated - player wins this fight
+                        defeated_enemies.add(current_enemy_id)
+                        save_game()
+                        # Full heal for next fight
+                        player_health = max_health
+                        # Reset enemy health
+                        enemy_health = max_enemy_health
+                        # Deactivate hard mode sprite
+                        hard_mode_active = False
+                        # Set flag to exit to menu
+                        qte_active = False
+                        attack_active = False
+                        return  # Exit attack phase immediately
+                    
+                    # Capture the frozen frame
+                    frozen_frame = screen.copy()
+        
+        if not hit_registered:
+            # Update QTE position
+            qte_position += qte_speed * qte_direction
+            
+            # Bounce at edges
+            if qte_position <= 0 or qte_position >= 100:
+                qte_direction *= -1
+        
+            # Draw QTE screen
+            draw_background()
+            draw_ally()
+            draw_enemy()
+            
+            # Draw QTE bar
+            bar_x = WIDTH // 2 - qte_bar_length // 2
+            bar_y = HEIGHT // 2
+            bar_height = 40
+            
+            # Draw bar background
+            pygame.draw.rect(screen, (50, 50, 50), (bar_x, bar_y, qte_bar_length, bar_height))
+            pygame.draw.rect(screen, WHITE, (bar_x, bar_y, qte_bar_length, bar_height), 3)
+            
+            # Draw target zone (middle)
+            target_x = bar_x + qte_bar_length // 2 - 30
+            pygame.draw.rect(screen, GREEN, (target_x, bar_y, 60, bar_height))
+            
+            # Draw perfect zone
+            perfect_x = bar_x + qte_bar_length // 2 - 10
+            pygame.draw.rect(screen, YELLOW, (perfect_x, bar_y, 20, bar_height))
+            
+            # Draw moving indicator
+            indicator_x = bar_x + int((qte_position / 100) * qte_bar_length)
+            pygame.draw.rect(screen, RED, (indicator_x - 5, bar_y - 10, 10, bar_height + 20))
+            
+            # Draw instruction
+            instruction = render_text("PRESS SPACE TO ATTACK!", WHITE, 1.0)
+            instruction_rect = instruction.get_rect(center=(WIDTH // 2, bar_y - 50))
+            screen.blit(instruction, instruction_rect)
+            
+            pygame.display.flip()
+            clock.tick(FPS)
+        else:
+            # Freeze phase
+            if freeze_frames > 0:
+                screen.blit(frozen_frame, (0, 0))
+                
+                # Draw hit result text
+                result_text = render_text(f"{hit_quality}", hit_color, 2.0)
+                result_rect = result_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 100))
+                screen.blit(result_text, result_rect)
+                
+                damage_text = render_text(f"{damage_dealt} DAMAGE!", hit_color, 1.0)
+                damage_rect = damage_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40))
+                screen.blit(damage_text, damage_rect)
+                
+                freeze_frames -= 1
+                pygame.display.flip()
+                clock.tick(FPS)
+            # Fade phase
+            elif fade_frames > 0:
+                # Calculate fade alpha
+                alpha = int(255 * (fade_frames / 30))
+                
+                # Create faded version of frozen frame
+                faded_frame = frozen_frame.copy()
+                fade_surface = pygame.Surface((WIDTH, HEIGHT))
+                fade_surface.fill(BLACK)
+                fade_surface.set_alpha(255 - alpha)
+                faded_frame.blit(fade_surface, (0, 0))
+                
+                screen.blit(faded_frame, (0, 0))
+                
+                # Draw fading text
+                result_text = render_text(f"{hit_quality}", hit_color, 2.0)
+                result_text.set_alpha(alpha)
+                result_rect = result_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 100))
+                screen.blit(result_text, result_rect)
+                
+                damage_text = render_text(f"{damage_dealt} DAMAGE!", hit_color, 1.0)
+                damage_text.set_alpha(alpha)
+                damage_rect = damage_text.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 40))
+                screen.blit(damage_text, damage_rect)
+                
+                fade_frames -= 1
+                pygame.display.flip()
+                clock.tick(FPS)
+            else:
+                # Done - check if we need to trigger hard mode
+                if hard_mode_triggered:
+                    trigger_hard_mode()
+                
+                qte_active = False
+                attack_active = False
+
+def enemy_selection_screen():
+    """Show enemy selection screen with defeated status"""
+    global current_enemy_id, defeated_enemies
+    
+    selected_enemy = 1
+    
+    # Check if secret enemy is unlocked
+    secret_unlocked = len(defeated_enemies) >= 7
     
     while True:
         screen.fill(BLACK)
         
         # Title
-        title_text = title_font.render("Select Your bur", True, WHITE)
-        screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, HEIGHT // 4))
+        title_text = render_text("SELECT ENEMY", WHITE, 2.0)
+        screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, 100))
         
-        # Character selection
-        char_y = HEIGHT // 2 - 100
-        for i, name in enumerate(character_names):
-            char_x = WIDTH // 2 - 200 + i * 200
+        # Enemy list
+        y_pos = 250
+        for enemy_id in range(1, 9):
+            # Skip secret enemy if not unlocked
+            if enemy_id == 8 and not secret_unlocked:
+                continue
             
-            # Draw character sprite
-            char_img = player_imgs[i]
-            char_rect = char_img.get_rect()
-            char_rect.center = (char_x, char_y)
-            screen.blit(char_img, char_rect)
+            enemy_data = ENEMIES[enemy_id]
+            enemy_name = enemy_data["name"]
             
-            # Draw character name
-            name_text = small_font.render(name, True, WHITE)
-            name_rect = name_text.get_rect()
-            name_rect.center = (char_x, char_y + 60)
-            screen.blit(name_text, name_rect)
+            # Check if defeated
+            is_defeated = enemy_id in defeated_enemies
+            is_selected = enemy_id == selected_enemy
             
-            # Draw character description
-            desc_text = small_font.render(character_descriptions[i], True, WHITE)
-            desc_rect = desc_text.get_rect()
-            desc_rect.center = (char_x, char_y + 80)
-            screen.blit(desc_text, desc_rect)
+            # Color coding
+            if is_selected:
+                color = YELLOW
+            elif is_defeated:
+                color = GREEN
+            else:
+                color = WHITE
             
-            # Highlight selected character
-            if i == selected_character:
-                pygame.draw.rect(screen, WHITE, 
-                               (char_x - 60, char_y - 60, 120, 150), 3)
-                select_text = small_font.render("SELECTED", True, WHITE)
-                select_rect = select_text.get_rect()
-                select_rect.center = (char_x, char_y + 100)
-                screen.blit(select_text, select_rect)
+            # Draw enemy name
+            text = render_text(f"{enemy_id}. {enemy_name}", color, 1.2)
+            screen.blit(text, (WIDTH // 2 - text.get_width() // 2, y_pos))
+            
+            # Show defeated status
+            if is_defeated:
+                defeated_text = render_text("[DEFEATED]", GREEN, 0.6)
+                screen.blit(defeated_text, (WIDTH // 2 + text.get_width() // 2 + 20, y_pos + 10))
+            
+            y_pos += 60
         
         # Instructions
-        instruction_text = instruction_font.render("Use A/D to select, SPACE to confirm", True, WHITE)
-        screen.blit(instruction_text, (WIDTH // 2 - instruction_text.get_width() // 2, HEIGHT - 100))
+        instructions = render_text("W/S: SELECT - SPACE: FIGHT/REMATCH", WHITE, 0.6)
+        screen.blit(instructions, (WIDTH // 2 - instructions.get_width() // 2, HEIGHT - 150))
+        
+        if secret_unlocked:
+            secret_text = render_text("SECRET ENEMY UNLOCKED!", YELLOW, 0.7)
+            screen.blit(secret_text, (WIDTH // 2 - secret_text.get_width() // 2, HEIGHT - 100))
+        else:
+            secret_text = render_text("DEFEAT ALL 7 ENEMIES TO UNLOCK SECRET BOSS", (128, 128, 128), 0.5)
+            screen.blit(secret_text, (WIDTH // 2 - secret_text.get_width() // 2, HEIGHT - 100))
         
         pygame.display.flip()
         
@@ -1161,24 +1989,55 @@ def character_selection():
                 pygame.quit()
                 exit()
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_a and selected_character > 0:
-                    selected_character -= 1
-                elif event.key == pygame.K_d and selected_character < 2:
-                    selected_character += 1
+                if event.key == pygame.K_w:
+                    selected_enemy -= 1
+                    if selected_enemy < 1:
+                        selected_enemy = 8 if secret_unlocked else 7
+                    if selected_enemy == 8 and not secret_unlocked:
+                        selected_enemy = 7
+                elif event.key == pygame.K_s:
+                    selected_enemy += 1
+                    max_enemy = 8 if secret_unlocked else 7
+                    if selected_enemy > max_enemy:
+                        selected_enemy = 1
+                    if selected_enemy == 8 and not secret_unlocked:
+                        selected_enemy = 1
                 elif event.key == pygame.K_SPACE:
+                    current_enemy_id = selected_enemy
                     return
+                elif event.key == pygame.K_u:
+                    # Debug: Unlock all bosses
+                    defeated_enemies = {1, 2, 3, 4, 5, 6, 7}
+                    save_game()
+                    secret_unlocked = True  # Update immediately
+        
+        clock.tick(FPS)
 
 def start_screen():
-    title_font = pygame.font.SysFont(None, 72)
-    instruction_font = pygame.font.SysFont(None, 36)
+    """Main menu with New Game and Continue options"""
+    
+    # Check if save file exists
+    has_save = os.path.exists(save_file)
+    selected_option = 0 if not has_save else 1  # Default to New Game if no save
+    
+    options = ["NEW GAME"]
+    if has_save:
+        options.append("CONTINUE")
+    options.append("QUIT")
 
     while True:
         screen.fill(BLACK)
-        title_text = title_font.render("bur", True, WHITE)
-        instruction_text = instruction_font.render("Press SPACE to start", True, WHITE)
-
+        
+        title_text = render_text("BUR", WHITE, 3.0)
         screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, HEIGHT // 3))
-        screen.blit(instruction_text, (WIDTH // 2 - instruction_text.get_width() // 2, HEIGHT // 2))
+        
+        # Draw options
+        y_pos = HEIGHT // 2
+        for i, option in enumerate(options):
+            color = YELLOW if i == selected_option else WHITE
+            option_text = render_text(option, color, 1.2)
+            screen.blit(option_text, (WIDTH // 2 - option_text.get_width() // 2, y_pos))
+            y_pos += 60
 
         pygame.display.flip()
 
@@ -1187,15 +2046,44 @@ def start_screen():
                 pygame.quit()
                 exit()
             elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_SPACE:
-                    return
+                if event.key == pygame.K_w:
+                    selected_option = (selected_option - 1) % len(options)
+                elif event.key == pygame.K_s:
+                    selected_option = (selected_option + 1) % len(options)
+                elif event.key == pygame.K_SPACE:
+                    if options[selected_option] == "NEW GAME":
+                        # Reset save data
+                        global defeated_enemies, current_enemy_id
+                        defeated_enemies = set()
+                        current_enemy_id = 4
+                        save_game()
+                        return
+                    elif options[selected_option] == "CONTINUE":
+                        load_game()
+                        return
+                    elif options[selected_option] == "QUIT":
+                        pygame.quit()
+                        exit()
+        
+        clock.tick(FPS)
 
 def main():
-    global last_pattern_switch, current_pattern, invincible_timer, pattern_duration, cycle_count, points
+    global last_pattern_switch, current_pattern, invincible_timer, pattern_duration, cycle_count
     global pattern_bullets_spawned, pattern_spawn_timer, current_pattern_index
+    global enemy_health, max_enemy_health, defeated_enemies, hard_mode_active
     
     start_screen()
-    character_selection()
+    enemy_selection_screen()
+    
+    # Load assets for selected enemy
+    load_enemy_assets(current_enemy_id)
+    
+    # Set enemy health based on selected enemy
+    enemy_data = ENEMIES[current_enemy_id]
+    max_enemy_health = enemy_data["max_health"]
+    enemy_health = max_enemy_health
+    hard_mode_active = False  # Reset hard mode for new fight
+    
     initialize_character_stats()
     
     running = True
@@ -1227,15 +2115,14 @@ def main():
         # Check if cycle is complete (all patterns done AND no bullets left)
         if is_cycle_complete():
             cycle_count += 1
-            # Award bonus points for completing a cycle (with character multiplier)
-            points += int(cycle_count * 50 * get_money_multiplier())
             
             # End i-frames and reset player position
             invincible_timer = 0
             player_pos[0] = WIDTH // 2
             player_pos[1] = HEIGHT // 2
             
-            show_shop()
+            # Show attack phase instead of shop
+            show_attack_phase()
             
             # Reset for new cycle
             pattern_duration = max(1000, int(base_pattern_duration * (0.9 ** cycle_count)))
@@ -1253,7 +2140,7 @@ def main():
             invincible_timer -= 1
 
         # Draw background sprite
-        screen.blit(background_img, (0, 0))
+        draw_background()
         
         # Draw ally
         draw_ally()
@@ -1271,15 +2158,53 @@ def main():
         draw_health()
 
         if player_health <= 0:
-            game_over_text = font.render("Game Over", True, RED)
+            game_over_text = render_text("GAME OVER", RED, 2.5)
             screen.blit(game_over_text, (WIDTH // 2 - game_over_text.get_width() // 2, HEIGHT // 2))
+            retry_text = render_text("PRESS SPACE TO RETURN TO MENU", WHITE, 0.8)
+            screen.blit(retry_text, (WIDTH // 2 - retry_text.get_width() // 2, HEIGHT // 2 + 80))
             pygame.display.flip()
-            pygame.time.wait(3000)
-            running = False
+            
+            # Wait for space to return to menu
+            waiting = True
+            while waiting:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        exit()
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_SPACE:
+                            waiting = False
+                            running = False
+                clock.tick(FPS)
+        
+        # Check if enemy was defeated (handled in attack phase, will exit to menu)
+        if current_enemy_id in defeated_enemies and enemy_health >= max_enemy_health:
+            # Enemy was just defeated, show victory and return to menu
+            victory_text = render_text("VICTORY!", GREEN, 2.5)
+            screen.blit(victory_text, (WIDTH // 2 - victory_text.get_width() // 2, HEIGHT // 2))
+            continue_text = render_text("PRESS SPACE TO CONTINUE", WHITE, 0.8)
+            screen.blit(continue_text, (WIDTH // 2 - continue_text.get_width() // 2, HEIGHT // 2 + 80))
+            pygame.display.flip()
+            
+            # Wait for space
+            waiting = True
+            while waiting:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT:
+                        pygame.quit()
+                        exit()
+                    elif event.type == pygame.KEYDOWN:
+                        if event.key == pygame.K_SPACE:
+                            waiting = False
+                            running = False
+                clock.tick(FPS)
 
         pygame.display.flip()
 
-    pygame.quit()
+    pygame.mixer.music.stop()
+    
+    # Return to menu
+    main()
 
 if __name__ == "__main__":
     main()
