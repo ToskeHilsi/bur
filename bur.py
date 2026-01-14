@@ -102,6 +102,14 @@ defeated_enemies = set()  # Track which enemies have been beaten
 save_file = "bur_save.json"
 hard_mode_active = False  # Track if we're in hard mode
 
+def find_file(filename):
+    """Recursively search for a file starting from current directory"""
+    import os
+    for root, dirs, files in os.walk('.'):
+        if filename in files:
+            return os.path.join(root, filename)
+    return None
+
 # Character selection and stats - SIMPLIFIED TO ONE CHARACTER
 selected_character = 0
 character_stats = {
@@ -130,18 +138,22 @@ attack_flavor_texts = []  # Will be populated with loaded sprites
 # Load attack flavor text sprites
 flavor_text_num = 0
 while True:
-    try:
-        flavor_sprite = pygame.image.load(f"attack_text_{flavor_text_num}.png").convert_alpha()
-        # Scale to much bigger size - take up most of the screen
-        original_width, original_height = flavor_sprite.get_size()
-        # Scale to fit within 1400x800 (keeping aspect ratio)
-        scale_factor = min(1400 / original_width, 800 / original_height)
-        new_width = int(original_width * scale_factor)
-        new_height = int(original_height * scale_factor)
-        flavor_sprite = pygame.transform.scale(flavor_sprite, (new_width, new_height))
-        attack_flavor_texts.append(flavor_sprite)
-        flavor_text_num += 1
-    except:
+    filepath = find_file(f"attack_text_{flavor_text_num}.png")
+    if filepath:
+        try:
+            flavor_sprite = pygame.image.load(filepath).convert_alpha()
+            # Scale to much bigger size - take up most of the screen
+            original_width, original_height = flavor_sprite.get_size()
+            # Scale to fit within 1400x800 (keeping aspect ratio)
+            scale_factor = min(1400 / original_width, 800 / original_height)
+            new_width = int(original_width * scale_factor)
+            new_height = int(original_height * scale_factor)
+            flavor_sprite = pygame.transform.scale(flavor_sprite, (new_width, new_height))
+            attack_flavor_texts.append(flavor_sprite)
+            flavor_text_num += 1
+        except:
+            break
+    else:
         break
 
 # Fallback if no custom sprites
@@ -193,16 +205,18 @@ def load_letter_sprites():
     import os
     
     # Check if letters folder exists
-    if not os.path.exists('letters'):
+    letters_found = False
+    for root, dirs, files in os.walk('.'):
+        if 'letters' in dirs or any('letters' in d for d in dirs):
+            letters_found = True
+            break
+    
+    if not letters_found:
         print("WARNING: 'letters' folder not found!")
         print(f"Current directory: {os.getcwd()}")
         print("Please create a 'letters' folder with letter sprite images.")
     else:
-        print(f"Letters folder found at: {os.path.abspath('letters')}")
-        files = os.listdir('letters')
-        print(f"Files in letters folder: {len(files)} files")
-        if len(files) > 0:
-            print(f"Sample files: {files[:5]}")
+        print(f"Letters folder found")
     
     characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!?.-:,'/() "
     
@@ -211,44 +225,70 @@ def load_letter_sprites():
     loaded_sprites = 0
     
     for char in characters:
-        try:
-            # Try loading individual letter files
-            if char == ' ':
-                filename = 'letters/space.png'
-            elif char == '!':
-                filename = 'letters/exclamation.png'
-            elif char == '?':
-                filename = 'letters/question.png'
-            elif char == '.':
-                filename = 'letters/period.png'
-            elif char == '-':
-                filename = 'letters/dash.png'
-            elif char == ':':
-                filename = 'letters/colon.png'
-            elif char == ',':
-                filename = 'letters/comma.png'
-            elif char == "'":
-                filename = 'letters/apostrophe.png'
-            elif char == '/':
-                filename = 'letters/slash.png'
-            elif char == '(':
-                filename = 'letters/lparen.png'
-            elif char == ')':
-                filename = 'letters/rparen.png'
-            else:
-                filename = f'letters/{char}.png'
-            
-            sprite = pygame.image.load(filename).convert_alpha()
-            letter_sprites[char] = sprite
-            loaded_sprites += 1
-            
-            # Update default dimensions based on first loaded sprite
-            if not first_loaded:
-                letter_width = sprite.get_width()
-                letter_height = sprite.get_height()
-                first_loaded = True
-                print(f"✓ Letter sprites loaded! Size: {letter_width}x{letter_height}")
-        except Exception as e:
+        # Try loading individual letter files
+        if char == ' ':
+            filename = 'space.png'
+        elif char == '!':
+            filename = 'exclamation.png'
+        elif char == '?':
+            filename = 'question.png'
+        elif char == '.':
+            filename = 'period.png'
+        elif char == '-':
+            filename = 'dash.png'
+        elif char == ':':
+            filename = 'colon.png'
+        elif char == ',':
+            filename = 'comma.png'
+        elif char == "'":
+            filename = 'apostrophe.png'
+        elif char == '/':
+            filename = 'slash.png'
+        elif char == '(':
+            filename = 'lparen.png'
+        elif char == ')':
+            filename = 'rparen.png'
+        else:
+            filename = f'{char}.png'
+        
+        # Search for file in any subfolder
+        filepath = None
+        for root, dirs, files in os.walk('.'):
+            if filename in files:
+                filepath = os.path.join(root, filename)
+                break
+        
+        if filepath:
+            try:
+                sprite = pygame.image.load(filepath).convert_alpha()
+                letter_sprites[char] = sprite
+                loaded_sprites += 1
+                
+                # Update default dimensions based on first loaded sprite
+                if not first_loaded:
+                    letter_width = sprite.get_width()
+                    letter_height = sprite.get_height()
+                    first_loaded = True
+                    print(f"✓ Letter sprites loaded! Size: {letter_width}x{letter_height}")
+            except Exception as e:
+                # Create fallback sprite with pygame font
+                if not first_loaded:
+                    # Set default dimensions if nothing loaded yet
+                    letter_width = 16
+                    letter_height = 24
+                
+                fallback_surface = pygame.Surface((letter_width, letter_height), pygame.SRCALPHA)
+                if char == ' ':
+                    # Space is just transparent
+                    pass
+                else:
+                    # Render with pygame font as fallback
+                    fallback_text = font.render(char, True, WHITE)
+                    # Center it in the surface
+                    text_rect = fallback_text.get_rect(center=(letter_width // 2, letter_height // 2))
+                    fallback_surface.blit(fallback_text, text_rect)
+                letter_sprites[char] = fallback_surface
+        else:
             # Create fallback sprite with pygame font
             if not first_loaded:
                 # Set default dimensions if nothing loaded yet
@@ -268,7 +308,7 @@ def load_letter_sprites():
             letter_sprites[char] = fallback_surface
     
     if not first_loaded:
-        print("⚠ WARNING: No letter sprites found in letters/ folder!")
+        print("⚠ WARNING: No letter sprites found!")
         print("   Using fallback pygame font rendering instead.")
         print("   Place letter sprite PNGs in a 'letters' folder to use custom fonts.")
     else:
@@ -343,8 +383,19 @@ current_cycle_patterns = []
 current_pattern_index = 0
 
 # Load bullet sprite (will be overridden per enemy)
-bullet_img = pygame.image.load("bullet.png").convert_alpha()
-bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+bullet_filepath = find_file("bullet.png")
+if bullet_filepath:
+    try:
+        bullet_img = pygame.image.load(bullet_filepath).convert_alpha()
+        bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+    except:
+        # Create fallback bullet
+        bullet_img = pygame.Surface((12, 12), pygame.SRCALPHA)
+        pygame.draw.circle(bullet_img, RED, (6, 6), 5)
+else:
+    # Create fallback bullet
+    bullet_img = pygame.Surface((12, 12), pygame.SRCALPHA)
+    pygame.draw.circle(bullet_img, RED, (6, 6), 5)
 
 def load_enemy_assets(enemy_id):
     """Load all assets for a specific enemy"""
@@ -365,20 +416,30 @@ def load_enemy_assets(enemy_id):
     background_frames = []
     frame_num = 0
     while True:
-        try:
-            frame = pygame.image.load(f"{bg_name}_{frame_num}.png").convert()
-            frame = pygame.transform.scale(frame, (WIDTH, HEIGHT))
-            background_frames.append(frame)
-            frame_num += 1
-        except:
+        filepath = find_file(f"{bg_name}_{frame_num}.png")
+        if filepath:
+            try:
+                frame = pygame.image.load(filepath).convert()
+                frame = pygame.transform.scale(frame, (WIDTH, HEIGHT))
+                background_frames.append(frame)
+                frame_num += 1
+            except:
+                break
+        else:
             break
     
     if not background_frames:
-        try:
-            bg = pygame.image.load(f"{bg_name}.png").convert()
-            bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
-            background_frames = [bg]
-        except:
+        filepath = find_file(f"{bg_name}.png")
+        if filepath:
+            try:
+                bg = pygame.image.load(filepath).convert()
+                bg = pygame.transform.scale(bg, (WIDTH, HEIGHT))
+                background_frames = [bg]
+            except:
+                bg = pygame.Surface((WIDTH, HEIGHT))
+                bg.fill(BLACK)
+                background_frames = [bg]
+        else:
             bg = pygame.Surface((WIDTH, HEIGHT))
             bg.fill(BLACK)
             background_frames = [bg]
@@ -387,28 +448,38 @@ def load_enemy_assets(enemy_id):
     enemy_frames = []
     frame_num = 0
     while True:
-        try:
-            frame = pygame.image.load(f"enemy{enemy_id}_{frame_num}.png").convert_alpha()
-            original_width, original_height = frame.get_size()
-            scale_factor = min(600 / original_width, 600 / original_height)
-            new_width = int(original_width * scale_factor)
-            new_height = int(original_height * scale_factor)
-            frame = pygame.transform.scale(frame, (new_width, new_height))
-            enemy_frames.append(frame)
-            frame_num += 1
-        except:
+        filepath = find_file(f"enemy{enemy_id}_{frame_num}.png")
+        if filepath:
+            try:
+                frame = pygame.image.load(filepath).convert_alpha()
+                original_width, original_height = frame.get_size()
+                scale_factor = min(600 / original_width, 600 / original_height)
+                new_width = int(original_width * scale_factor)
+                new_height = int(original_height * scale_factor)
+                frame = pygame.transform.scale(frame, (new_width, new_height))
+                enemy_frames.append(frame)
+                frame_num += 1
+            except:
+                break
+        else:
             break
     
     if not enemy_frames:
-        try:
-            enemy_img = pygame.image.load(f"enemy{enemy_id}.png").convert_alpha()
-            original_width, original_height = enemy_img.get_size()
-            scale_factor = min(600 / original_width, 600 / original_height)
-            new_width = int(original_width * scale_factor)
-            new_height = int(original_height * scale_factor)
-            enemy_img = pygame.transform.scale(enemy_img, (new_width, new_height))
-            enemy_frames = [enemy_img]
-        except:
+        filepath = find_file(f"enemy{enemy_id}.png")
+        if filepath:
+            try:
+                enemy_img = pygame.image.load(filepath).convert_alpha()
+                original_width, original_height = enemy_img.get_size()
+                scale_factor = min(600 / original_width, 600 / original_height)
+                new_width = int(original_width * scale_factor)
+                new_height = int(original_height * scale_factor)
+                enemy_img = pygame.transform.scale(enemy_img, (new_width, new_height))
+                enemy_frames = [enemy_img]
+            except:
+                enemy_img = pygame.Surface((600, 600), pygame.SRCALPHA)
+                pygame.draw.circle(enemy_img, RED, (300, 300), 250)
+                enemy_frames = [enemy_img]
+        else:
             enemy_img = pygame.Surface((600, 600), pygame.SRCALPHA)
             pygame.draw.circle(enemy_img, RED, (300, 300), 250)
             enemy_frames = [enemy_img]
@@ -417,28 +488,43 @@ def load_enemy_assets(enemy_id):
     hard_enemy_frames = []
     frame_num = 0
     while True:
-        try:
-            frame = pygame.image.load(f"hard_enemy{enemy_id}_{frame_num}.png").convert_alpha()
-            original_width, original_height = frame.get_size()
-            scale_factor = min(600 / original_width, 600 / original_height)
-            new_width = int(original_width * scale_factor)
-            new_height = int(original_height * scale_factor)
-            frame = pygame.transform.scale(frame, (new_width, new_height))
-            hard_enemy_frames.append(frame)
-            frame_num += 1
-        except:
+        filepath = find_file(f"hard_enemy{enemy_id}_{frame_num}.png")
+        if filepath:
+            try:
+                frame = pygame.image.load(filepath).convert_alpha()
+                original_width, original_height = frame.get_size()
+                scale_factor = min(600 / original_width, 600 / original_height)
+                new_width = int(original_width * scale_factor)
+                new_height = int(original_height * scale_factor)
+                frame = pygame.transform.scale(frame, (new_width, new_height))
+                hard_enemy_frames.append(frame)
+                frame_num += 1
+            except:
+                break
+        else:
             break
     
     if not hard_enemy_frames:
-        try:
-            hard_enemy_img = pygame.image.load(f"hard_enemy{enemy_id}.png").convert_alpha()
-            original_width, original_height = hard_enemy_img.get_size()
-            scale_factor = min(600 / original_width, 600 / original_height)
-            new_width = int(original_width * scale_factor)
-            new_height = int(original_height * scale_factor)
-            hard_enemy_img = pygame.transform.scale(hard_enemy_img, (new_width, new_height))
-            hard_enemy_frames = [hard_enemy_img]
-        except:
+        filepath = find_file(f"hard_enemy{enemy_id}.png")
+        if filepath:
+            try:
+                hard_enemy_img = pygame.image.load(filepath).convert_alpha()
+                original_width, original_height = hard_enemy_img.get_size()
+                scale_factor = min(600 / original_width, 600 / original_height)
+                new_width = int(original_width * scale_factor)
+                new_height = int(original_height * scale_factor)
+                hard_enemy_img = pygame.transform.scale(hard_enemy_img, (new_width, new_height))
+                hard_enemy_frames = [hard_enemy_img]
+            except:
+                # Fallback - purple tint
+                hard_enemy_frames = []
+                for frame in enemy_frames:
+                    hard_frame = frame.copy()
+                    purple_overlay = pygame.Surface(hard_frame.get_size())
+                    purple_overlay.fill((128, 0, 128))
+                    hard_frame.blit(purple_overlay, (0, 0), special_flags=pygame.BLEND_MULT)
+                    hard_enemy_frames.append(hard_frame)
+        else:
             # Fallback - purple tint
             hard_enemy_frames = []
             for frame in enemy_frames:
@@ -449,13 +535,26 @@ def load_enemy_assets(enemy_id):
                 hard_enemy_frames.append(hard_frame)
     
     # Load bullet sprite for this enemy
-    try:
-        bullet_img = pygame.image.load(f"bullet{enemy_id}.png").convert_alpha()
-        bullet_img = pygame.transform.scale(bullet_img, (12, 12))
-    except:
+    filepath = find_file(f"bullet{enemy_id}.png")
+    if filepath:
+        try:
+            bullet_img = pygame.image.load(filepath).convert_alpha()
+            bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+        except:
+            # Use default bullet
+            filepath = find_file("bullet.png")
+            if filepath:
+                bullet_img = pygame.image.load(filepath).convert_alpha()
+                bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+    else:
         # Use default bullet
-        bullet_img = pygame.image.load("bullet.png").convert_alpha()
-        bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+        filepath = find_file("bullet.png")
+        if filepath:
+            try:
+                bullet_img = pygame.image.load(filepath).convert_alpha()
+                bullet_img = pygame.transform.scale(bullet_img, (12, 12))
+            except:
+                pass
     
     # Load and play music for this enemy
     music_name = enemy_data["music"]
@@ -463,21 +562,25 @@ def load_enemy_assets(enemy_id):
     
     # Try multiple formats in order of preference: .ogg (best quality/performance), .mp3, .wav
     for ext in ['.ogg', '.mp3', '.wav']:
-        try:
-            pygame.mixer.music.load(music_name + ext)
-            pygame.mixer.music.play(-1)  # Loop indefinitely
-            music_loaded = True
-            break
-        except:
-            continue
+        filepath = find_file(music_name + ext)
+        if filepath:
+            try:
+                pygame.mixer.music.load(filepath)
+                pygame.mixer.music.play(-1)  # Loop indefinitely
+                music_loaded = True
+                break
+            except:
+                continue
     
     if not music_loaded:
         # Try without extension (in case it's already included)
-        try:
-            pygame.mixer.music.load(music_name)
-            pygame.mixer.music.play(-1)
-        except:
-            pass  # No music file found, continue without music
+        filepath = find_file(music_name)
+        if filepath:
+            try:
+                pygame.mixer.music.load(filepath)
+                pygame.mixer.music.play(-1)
+            except:
+                pass  # No music file found, continue without music
 
 # Initial load will be done after enemy selection
 
@@ -498,25 +601,37 @@ enemy_x = WIDTH - 650
 enemy_y = HEIGHT // 2 - 250
 
 # Character sprites - single character only
-try:
-    player_img = pygame.image.load("player.png").convert_alpha()
-    player_img = pygame.transform.scale(player_img, (30, 30))
-    player_imgs = [player_img]  # Keep as list for compatibility
-except:
+player_filepath = find_file("player.png")
+if player_filepath:
+    try:
+        player_img = pygame.image.load(player_filepath).convert_alpha()
+        player_img = pygame.transform.scale(player_img, (30, 30))
+        player_imgs = [player_img]  # Keep as list for compatibility
+    except:
+        player_img = pygame.Surface((30, 30), pygame.SRCALPHA)
+        pygame.draw.circle(player_img, BLUE, (15, 15), 12)
+        player_imgs = [player_img]
+else:
     player_img = pygame.Surface((30, 30), pygame.SRCALPHA)
     pygame.draw.circle(player_img, BLUE, (15, 15), 12)
     player_imgs = [player_img]
 
 # Ally player sprites (single character)
-try:
-    ally_img = pygame.image.load("ally.png").convert_alpha()
-    original_width, original_height = ally_img.get_size()
-    scale_factor = min(600 / original_width, 600 / original_height)
-    new_width = int(original_width * scale_factor)
-    new_height = int(original_height * scale_factor)
-    ally_img = pygame.transform.scale(ally_img, (new_width, new_height))
-    ally_frames_list = [[ally_img]]
-except:
+ally_filepath = find_file("ally.png")
+if ally_filepath:
+    try:
+        ally_img = pygame.image.load(ally_filepath).convert_alpha()
+        original_width, original_height = ally_img.get_size()
+        scale_factor = min(600 / original_width, 600 / original_height)
+        new_width = int(original_width * scale_factor)
+        new_height = int(original_height * scale_factor)
+        ally_img = pygame.transform.scale(ally_img, (new_width, new_height))
+        ally_frames_list = [[ally_img]]
+    except:
+        ally_img = pygame.Surface((600, 600), pygame.SRCALPHA)
+        pygame.draw.circle(ally_img, BLUE, (300, 300), 250)
+        ally_frames_list = [[ally_img]]
+else:
     ally_img = pygame.Surface((600, 600), pygame.SRCALPHA)
     pygame.draw.circle(ally_img, BLUE, (300, 300), 250)
     ally_frames_list = [[ally_img]]
