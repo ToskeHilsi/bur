@@ -47,7 +47,7 @@ ENEMIES = {
         "attacks": [19, 20, 21, 22, 23]  # Tumbleweed Roll, Cactus Burst, Dust Devil, High Noon, Lasso Spin
     },
     3: {
-        "name": "Cap'n Cakes",
+        "name": "Shred Master",
         "background": "cyber_city",
         "music": "fandago",
         "difficulty": 0.8,
@@ -2164,7 +2164,7 @@ def spawn_lasso_spin():
     })
     spiral_angle += 0.32 * difficulty
 
-### ENEMY 3 - CAP'N CAKES ###
+### ENEMY 3 - SHRED MASTER ###
 def spawn_dance_routine():
     """Corner bursts"""
     difficulty = apply_difficulty_scaling()
@@ -2960,193 +2960,6 @@ def spawn_dance_routine():
                 'rotation_speed': 5
             })
 
-def spawn_pipis_spread():
-    """Enemy 4 - Spamton NEO: Egg bullets that explode after delay"""
-    difficulty = apply_difficulty_scaling()
-    
-    # Spawn 8 pipis in circle around center
-    num_pipis = 8
-    radius = 100
-    center_x, center_y = WIDTH // 2, HEIGHT // 2
-    
-    for i in range(num_pipis):
-        angle = (2 * math.pi / num_pipis) * i
-        spawn_x = center_x + math.cos(angle) * radius
-        spawn_y = center_y + math.sin(angle) * radius
-        
-        bullets.append({
-            'x': spawn_x,
-            'y': spawn_y,
-            'vx': 0,
-            'vy': 0,
-            'type': 'giant_explosive',
-            'life_time': int(FPS * (2 / difficulty)),  # Explode faster at higher difficulty
-            'size': 3,
-            'speed': 4 * difficulty,
-            'rotation': 0,
-            'rotation_speed': 3,
-            'exploded': False
-        })
-
-def spawn_shadow_crystal():
-    """Enemy 5 - The Roaring Knight: Rotating crystal formation"""
-    difficulty = apply_difficulty_scaling()
-    
-    center_x, center_y = WIDTH // 2, HEIGHT // 2
-    num_crystals = 12
-    radius_start = 50
-    radius_end = 200
-    
-    for i in range(num_crystals):
-        angle = (2 * math.pi / num_crystals) * i
-        
-        # Create expanding bullets in formation
-        for radius in range(radius_start, radius_end, 30):
-            x = center_x + math.cos(angle) * radius
-            y = center_y + math.sin(angle) * radius
-            
-            bullets.append({
-                'center_x': center_x,
-                'center_y': center_y,
-                'angle': angle,
-                'radius': radius,
-                'type': 'expanding_spiral',
-                'rotation': 0,
-                'rotation_speed': 5,
-                'angular_velocity': 0.02 * difficulty  # Rotation speed
-            })
-
-def spawn_bone_zone():
-    """Enemy 6 - Sans: Bone walls from top and bottom"""
-    difficulty = apply_difficulty_scaling()
-    
-    # Create bone walls with gaps
-    gap_size = 80
-    gap_position = random.randint(box_x + gap_size, box_x + box_size - gap_size)
-    bone_width = 15
-    
-    # Top bones
-    for x in range(box_x, box_x + box_size, bone_width + 5):
-        if abs(x - gap_position) > gap_size // 2:
-            bullets.append({
-                'x': x,
-                'y': box_y,
-                'vx': 0,
-                'vy': 6 * difficulty,
-                'type': 'radial',
-                'rotation': 0,
-                'rotation_speed': 0,
-                'life_time': FPS * 3
-            })
-    
-    # Bottom bones
-    for x in range(box_x, box_x + box_size, bone_width + 5):
-        if abs(x - gap_position) > gap_size // 2:
-            bullets.append({
-                'x': x,
-                'y': box_y + box_size,
-                'vx': 0,
-                'vy': -6 * difficulty,
-                'type': 'radial',
-                'rotation': 0,
-                'rotation_speed': 0,
-                'life_time': FPS * 3
-            })
-
-def spawn_rude_buster():
-    """Enemy 7 - Susie: Massive beam attacks from sides"""
-    difficulty = apply_difficulty_scaling()
-    
-    # Create 4 large beams from corners
-    beam_width = 100
-    beam_speed = 7 * difficulty
-    
-    # From left
-    bullets.append({
-        'x': box_x,
-        'y': box_y + box_size // 3,
-        'width': beam_width,
-        'height': box_size // 3,
-        'vx': beam_speed,
-        'vy': 0,
-        'type': 'laser',
-        'color': 'orange',
-        'life_time': FPS * 4
-    })
-    
-    # From right
-    bullets.append({
-        'x': box_x + box_size - beam_width,
-        'y': box_y + (box_size // 3) * 2,
-        'width': beam_width,
-        'height': box_size // 3,
-        'vx': -beam_speed,
-        'vy': 0,
-        'type': 'laser',
-        'color': 'orange',
-        'life_time': FPS * 4
-    })
-
-def spawn_void_convergence():
-    """Enemy 8 - ???: All edges converge to center"""
-    difficulty = apply_difficulty_scaling()
-    speed = 4 * difficulty
-    
-    # From all four edges
-    spacing = 20
-    
-    # Top edge
-    for x in range(box_x, box_x + box_size, spacing):
-        angle = math.atan2(HEIGHT // 2 - box_y, (box_x + box_size // 2) - x)
-        bullets.append({
-            'x': x,
-            'y': box_y,
-            'vx': math.cos(angle) * speed,
-            'vy': math.sin(angle) * speed,
-            'type': 'radial',
-            'rotation': 0,
-            'rotation_speed': 5
-        })
-    
-    # Bottom edge
-    for x in range(box_x, box_x + box_size, spacing):
-        angle = math.atan2((box_y + box_size) - HEIGHT // 2, (box_x + box_size // 2) - x)
-        bullets.append({
-            'x': x,
-            'y': box_y + box_size,
-            'vx': math.cos(angle) * speed,
-            'vy': -math.sin(angle) * speed,
-            'type': 'radial',
-            'rotation': 0,
-            'rotation_speed': 5
-        })
-    
-    # Left edge
-    for y in range(box_y, box_y + box_size, spacing):
-        angle = math.atan2((box_y + box_size // 2) - y, WIDTH // 2 - box_x)
-        bullets.append({
-            'x': box_x,
-            'y': y,
-            'vx': math.cos(angle) * speed,
-            'vy': math.sin(angle) * speed,
-            'type': 'radial',
-            'rotation': 0,
-            'rotation_speed': 5
-        })
-    
-    # Right edge
-    for y in range(box_y, box_y + box_size, spacing):
-        angle = math.atan2((box_y + box_size // 2) - y, (box_x + box_size) - WIDTH // 2)
-        bullets.append({
-            'x': box_x + box_size,
-            'y': y,
-            'vx': -math.cos(angle) * speed,
-            'vy': math.sin(angle) * speed,
-            'type': 'radial',
-            'rotation': 0,
-            'rotation_speed': 5
-        })
-
 def show_attack_phase():
     """Show attack phase with flavor text sprite and QTE"""
     global attack_active, qte_active, qte_position, qte_direction, enemy_health, player_health
@@ -3398,149 +3211,217 @@ def show_attack_phase():
                 qte_active = False
                 attack_active = False
 
-def enemy_selection_screen():
-    """Show enemy selection screen with defeated status"""
+def hub_room():
+    """Hub room where player walks around and interacts with enemy statues"""
     global current_enemy_id, defeated_enemies
     
-    selected_enemy = 1
+    # Hub room settings
+    hub_player_x = WIDTH // 2
+    hub_player_y = HEIGHT // 2
+    hub_player_speed = 4
     
-    # Check if secret enemy is unlocked
-    secret_unlocked = len(defeated_enemies) >= 7
+    # Statue positions - arranged in a circle with more spread
+    statue_radius = 400  # Increased from 250
+    statues = []
+    num_enemies = 8
     
-    while True:
+    for i in range(num_enemies):
+        angle = (2 * math.pi / num_enemies) * i - math.pi / 2  # Start from top
+        x = WIDTH // 2 + math.cos(angle) * statue_radius
+        y = HEIGHT // 2 + math.sin(angle) * statue_radius
+        
+        enemy_id = i + 1
+        
+        # Add all statues except secret if not unlocked
+        if enemy_id == 8 and len(defeated_enemies) < 7:
+            continue
+        
+        statues.append({
+            'id': enemy_id,
+            'x': x,
+            'y': y,
+            'name': ENEMIES[enemy_id]["name"],
+            'defeated': enemy_id in defeated_enemies
+        })
+    
+    # Load or create hub room background
+    hub_bg_path = find_file("hub_room.png")
+    if hub_bg_path:
+        try:
+            hub_bg = pygame.image.load(hub_bg_path).convert()
+            hub_bg = pygame.transform.scale(hub_bg, (WIDTH, HEIGHT))
+        except:
+            hub_bg = pygame.Surface((WIDTH, HEIGHT))
+            hub_bg.fill((20, 20, 30))  # Dark background placeholder
+    else:
+        hub_bg = pygame.Surface((WIDTH, HEIGHT))
+        hub_bg.fill((20, 20, 30))  # Dark background placeholder
+    
+    # Load or create player sprite for hub
+    hub_player_path = find_file("hub_player.png")
+    if hub_player_path:
+        try:
+            hub_player_img = pygame.image.load(hub_player_path).convert_alpha()
+            hub_player_img = pygame.transform.scale(hub_player_img, (30, 30))
+        except:
+            hub_player_img = pygame.Surface((30, 30), pygame.SRCALPHA)
+            pygame.draw.circle(hub_player_img, BLUE, (15, 15), 12)  # Placeholder
+    else:
+        hub_player_img = pygame.Surface((30, 30), pygame.SRCALPHA)
+        pygame.draw.circle(hub_player_img, BLUE, (15, 15), 12)  # Placeholder
+    
+    # Load or create statue sprites
+    statue_path = find_file("statue.png")
+    if statue_path:
+        try:
+            statue_img = pygame.image.load(statue_path).convert_alpha()
+            statue_img = pygame.transform.scale(statue_img, (60, 80))
+        except:
+            statue_img = pygame.Surface((60, 80), pygame.SRCALPHA)
+            pygame.draw.rect(statue_img, (100, 100, 100), (10, 20, 40, 60))  # Placeholder
+            pygame.draw.circle(statue_img, (80, 80, 80), (30, 15), 15)
+    else:
+        statue_img = pygame.Surface((60, 80), pygame.SRCALPHA)
+        pygame.draw.rect(statue_img, (100, 100, 100), (10, 20, 40, 60))  # Placeholder
+        pygame.draw.circle(statue_img, (80, 80, 80), (30, 15), 15)
+    
+    defeated_statue_path = find_file("statue_defeated.png")
+    if defeated_statue_path:
+        try:
+            defeated_statue_img = pygame.image.load(defeated_statue_path).convert_alpha()
+            defeated_statue_img = pygame.transform.scale(defeated_statue_img, (60, 80))
+        except:
+            defeated_statue_img = pygame.Surface((60, 80), pygame.SRCALPHA)
+            pygame.draw.rect(defeated_statue_img, (50, 150, 50), (10, 20, 40, 60))  # Green tint
+            pygame.draw.circle(defeated_statue_img, (40, 120, 40), (30, 15), 15)
+    else:
+        defeated_statue_img = pygame.Surface((60, 80), pygame.SRCALPHA)
+        pygame.draw.rect(defeated_statue_img, (50, 150, 50), (10, 20, 40, 60))  # Green tint
+        pygame.draw.circle(defeated_statue_img, (40, 120, 40), (30, 15), 15)
+    
+    running = True
+    while running:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_e:
+                    # Check if near any statue
+                    for statue in statues:
+                        dist = math.hypot(hub_player_x - statue['x'], hub_player_y - statue['y'])
+                        if dist < 80:  # Interaction range increased from 60
+                            current_enemy_id = statue['id']
+                            return  # Exit hub room and start fight immediately
+                elif event.key == pygame.K_u:
+                    # Debug unlock
+                    defeated_enemies = {1, 2, 3, 4, 5, 6, 7}
+                    save_game()
+                    # Refresh by recursing (will rebuild statue list)
+                    return hub_room()
+                elif event.key == pygame.K_p:
+                    # Reset save data
+                    defeated_enemies = set()
+                    save_game()
+                    # Refresh by recursing (will rebuild statue list)
+                    return hub_room()
+        
+        # Handle movement
+        keys = pygame.key.get_pressed()
+        if keys[pygame.K_w] or keys[pygame.K_UP]:
+            hub_player_y = max(60, hub_player_y - hub_player_speed)
+        if keys[pygame.K_s] or keys[pygame.K_DOWN]:
+            hub_player_y = min(HEIGHT - 60, hub_player_y + hub_player_speed)
+        if keys[pygame.K_a] or keys[pygame.K_LEFT]:
+            hub_player_x = max(60, hub_player_x - hub_player_speed)
+        if keys[pygame.K_d] or keys[pygame.K_RIGHT]:
+            hub_player_x = min(WIDTH - 60, hub_player_x + hub_player_speed)
+        
+        # Draw everything
+        screen.blit(hub_bg, (0, 0))
+        
+        # Draw statues
+        for statue in statues:
+            # Choose sprite based on defeated status
+            current_statue_img = defeated_statue_img if statue['defeated'] else statue_img
+            statue_rect = current_statue_img.get_rect(center=(int(statue['x']), int(statue['y'])))
+            screen.blit(current_statue_img, statue_rect)
+            
+            # Draw statue name
+            name_text = render_text(statue['name'], WHITE if not statue['defeated'] else GREEN, 0.5)
+            name_rect = name_text.get_rect(center=(int(statue['x']), int(statue['y']) + 50))
+            screen.blit(name_text, name_rect)
+            
+            # Show [DEFEATED] tag
+            if statue['defeated']:
+                defeated_text = render_text("[DEFEATED]", GREEN, 0.4)
+                defeated_rect = defeated_text.get_rect(center=(int(statue['x']), int(statue['y']) + 65))
+                screen.blit(defeated_text, defeated_rect)
+        
+        # Draw player
+        player_rect = hub_player_img.get_rect(center=(int(hub_player_x), int(hub_player_y)))
+        screen.blit(hub_player_img, player_rect)
+        
+        # Check if near any statue and show prompt
+        near_statue = None
+        for statue in statues:
+            dist = math.hypot(hub_player_x - statue['x'], hub_player_y - statue['y'])
+            if dist < 80:
+                near_statue = statue
+                break
+        
+        if near_statue:
+            action_text = "REMATCH" if near_statue['defeated'] else "FIGHT"
+            prompt = render_text(f"PRESS E TO {action_text}", YELLOW, 0.7)
+            prompt_rect = prompt.get_rect(center=(WIDTH // 2, HEIGHT - 80))
+            screen.blit(prompt, prompt_rect)
+        
+        # Draw title
+        title = render_text("SELECT YOUR OPPONENT", WHITE, 1.2)
+        title_rect = title.get_rect(center=(WIDTH // 2, 40))
+        screen.blit(title, title_rect)
+        
+        # Draw controls
+        controls = render_text("WASD/ARROWS: MOVE - E: INTERACT - U: UNLOCK ALL - P: RESET SAVE", WHITE, 0.5)
+        controls_rect = controls.get_rect(center=(WIDTH // 2, HEIGHT - 30))
+        screen.blit(controls, controls_rect)
+        
+        pygame.display.flip()
+        clock.tick(FPS)
+
+def enemy_selection_screen():
+    """Redirect to hub room - statue interaction sets current_enemy_id and returns"""
+    hub_room()
+
+def start_screen():
+    """Simple title screen - press any key to start"""
+    global defeated_enemies
+    
+    # Try to load save file
+    load_game()
+    
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                pygame.quit()
+                exit()
+            elif event.type == pygame.KEYDOWN:
+                waiting = False
+        
         screen.fill(BLACK)
         
         # Title
-        title_text = render_text("SELECT ENEMY", WHITE, 2.0)
-        screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, 100))
+        title = render_text("BUR", WHITE, 3.0)
+        title_rect = title.get_rect(center=(WIDTH // 2, HEIGHT // 2 - 50))
+        screen.blit(title, title_rect)
         
-        # Enemy list
-        y_pos = 250
-        for enemy_id in range(1, 9):
-            # Skip secret enemy if not unlocked
-            if enemy_id == 8 and not secret_unlocked:
-                continue
-            
-            enemy_data = ENEMIES[enemy_id]
-            enemy_name = enemy_data["name"]
-            
-            # Check if defeated
-            is_defeated = enemy_id in defeated_enemies
-            is_selected = enemy_id == selected_enemy
-            
-            # Color coding
-            if is_selected:
-                color = YELLOW
-            elif is_defeated:
-                color = GREEN
-            else:
-                color = WHITE
-            
-            # Draw enemy name
-            text = render_text(f"{enemy_id}. {enemy_name}", color, 1.2)
-            screen.blit(text, (WIDTH // 2 - text.get_width() // 2, y_pos))
-            
-            # Show defeated status
-            if is_defeated:
-                defeated_text = render_text("[DEFEATED]", GREEN, 0.6)
-                screen.blit(defeated_text, (WIDTH // 2 + text.get_width() // 2 + 20, y_pos + 10))
-            
-            y_pos += 60
-        
-        # Instructions
-        instructions = render_text("W/S: SELECT - SPACE: FIGHT/REMATCH", WHITE, 0.6)
-        screen.blit(instructions, (WIDTH // 2 - instructions.get_width() // 2, HEIGHT - 150))
-        
-        if secret_unlocked:
-            secret_text = render_text("SECRET ENEMY UNLOCKED!", YELLOW, 0.7)
-            screen.blit(secret_text, (WIDTH // 2 - secret_text.get_width() // 2, HEIGHT - 100))
-        else:
-            secret_text = render_text("DEFEAT ALL 7 ENEMIES TO UNLOCK SECRET BOSS", (128, 128, 128), 0.5)
-            screen.blit(secret_text, (WIDTH // 2 - secret_text.get_width() // 2, HEIGHT - 100))
+        # Prompt
+        prompt = render_text("PRESS ANY KEY TO START", WHITE, 0.8)
+        prompt_rect = prompt.get_rect(center=(WIDTH // 2, HEIGHT // 2 + 50))
+        screen.blit(prompt, prompt_rect)
         
         pygame.display.flip()
-        
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_w:
-                    selected_enemy -= 1
-                    if selected_enemy < 1:
-                        selected_enemy = 8 if secret_unlocked else 7
-                    if selected_enemy == 8 and not secret_unlocked:
-                        selected_enemy = 7
-                elif event.key == pygame.K_s:
-                    selected_enemy += 1
-                    max_enemy = 8 if secret_unlocked else 7
-                    if selected_enemy > max_enemy:
-                        selected_enemy = 1
-                    if selected_enemy == 8 and not secret_unlocked:
-                        selected_enemy = 1
-                elif event.key == pygame.K_SPACE:
-                    current_enemy_id = selected_enemy
-                    return
-                elif event.key == pygame.K_u:
-                    # Debug: Unlock all bosses
-                    defeated_enemies = {1, 2, 3, 4, 5, 6, 7}
-                    save_game()
-                    secret_unlocked = True  # Update immediately
-        
-        clock.tick(FPS)
-
-def start_screen():
-    """Main menu with New Game and Continue options"""
-    
-    # Check if save file exists
-    has_save = os.path.exists(save_file)
-    selected_option = 0 if not has_save else 1  # Default to New Game if no save
-    
-    options = ["NEW GAME"]
-    if has_save:
-        options.append("CONTINUE")
-    options.append("QUIT")
-
-    while True:
-        screen.fill(BLACK)
-        
-        title_text = render_text("BUR", WHITE, 3.0)
-        screen.blit(title_text, (WIDTH // 2 - title_text.get_width() // 2, HEIGHT // 3))
-        
-        # Draw options
-        y_pos = HEIGHT // 2
-        for i, option in enumerate(options):
-            color = YELLOW if i == selected_option else WHITE
-            option_text = render_text(option, color, 1.2)
-            screen.blit(option_text, (WIDTH // 2 - option_text.get_width() // 2, y_pos))
-            y_pos += 60
-
-        pygame.display.flip()
-
-        for event in pygame.event.get():
-            if event.type == pygame.QUIT:
-                pygame.quit()
-                exit()
-            elif event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_w:
-                    selected_option = (selected_option - 1) % len(options)
-                elif event.key == pygame.K_s:
-                    selected_option = (selected_option + 1) % len(options)
-                elif event.key == pygame.K_SPACE:
-                    if options[selected_option] == "NEW GAME":
-                        # Reset save data
-                        global defeated_enemies, current_enemy_id
-                        defeated_enemies = set()
-                        current_enemy_id = 4
-                        save_game()
-                        return
-                    elif options[selected_option] == "CONTINUE":
-                        load_game()
-                        return
-                    elif options[selected_option] == "QUIT":
-                        pygame.quit()
-                        exit()
-        
         clock.tick(FPS)
 
 def main():
